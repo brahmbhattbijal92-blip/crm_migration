@@ -72,7 +72,7 @@ No intentional anon read policy for application rows was found in the schema. Ho
 
 ## Scaling and Architecture Limits
 
-- **Database connection growth:** `src/lib/db.ts` creates a `pg.Pool` per server process with no explicit size, timeouts, or pooler configuration. Serverless instance multiplication can exhaust PostgreSQL connections. Use Supabase's appropriate pooler and set a conservative per-instance connection limit.
+- **Database connection growth:** `src/lib/db.ts` caps each Node.js process at 5 PostgreSQL connections by default (`DB_POOL_MAX` can tune this from 1 to 20), with connection-acquisition and idle timeouts. Serverless instance multiplication can still exhaust PostgreSQL connections; use Supabase's appropriate pooler and size the per-process cap against the deployment's maximum instance count.
 - **Unbounded reads:** Several dashboard services load all clients, invoices, grants, and documents into the browser. Supabase/PostgREST row limits and browser memory become practical limits. Add pagination, server-side filtering, and summary queries before tenant datasets grow.
 - **Single active organization:** A profile has one `default_organization_id`. Memberships support more than one organization, but there is no organization switcher or explicit active-organization session model.
 - **Financial hot rows:** Grant allocation and invoice settlement lock the client row to prevent double spending. This is correct for consistency, but a client with many simultaneous transactions becomes a serialization point.

@@ -2,9 +2,25 @@ import 'server-only';
 
 import { Pool, PoolClient } from 'pg';
 
-// Initialize a shared, global database connection engine pool
+const DEFAULT_POOL_MAX = 5;
+const MAX_POOL_MAX = 20;
+
+function getPoolMax(): number {
+  const configuredMax = process.env.DB_POOL_MAX?.trim();
+  if (!configuredMax) return DEFAULT_POOL_MAX;
+
+  const poolMax = Number(configuredMax);
+  if (!Number.isSafeInteger(poolMax) || poolMax < 1 || poolMax > MAX_POOL_MAX) {
+    throw new Error(`DB_POOL_MAX must be a whole number between 1 and ${MAX_POOL_MAX}.`);
+  }
+  return poolMax;
+}
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  max: getPoolMax(),
+  connectionTimeoutMillis: 10_000,
+  idleTimeoutMillis: 30_000,
 });
 
 function validateDatabaseUrl(): void {
