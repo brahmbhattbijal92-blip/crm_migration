@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import type { ClientRecord, GrantBalance, InvoiceRecord } from '../../app/dashboard/StorageContext';
+import type { ClientRecord, GrantBalance } from '../../app/dashboard/StorageContext';
 import type { StoragePreference } from '../context/StorageContext';
 
 export interface GlobalControlHeaderProps {
@@ -79,6 +79,9 @@ export interface ClientSidebarProps {
   onNewClient(): void;
   showArchived: boolean;
   onToggleArchived(): void;
+  hasMoreClients: boolean;
+  isLoadingMore: boolean;
+  onLoadMore(): void;
 }
 
 export function ClientSidebar({
@@ -88,6 +91,9 @@ export function ClientSidebar({
   onNewClient,
   showArchived,
   onToggleArchived,
+  hasMoreClients,
+  isLoadingMore,
+  onLoadMore,
 }: ClientSidebarProps) {
   return (
     <div>
@@ -118,24 +124,23 @@ export function ClientSidebar({
         ))}
         {clients.length === 0 && <li className="px-4 py-6 text-sm text-zinc-500">No clients in this view.</li>}
       </ul>
+      {hasMoreClients && (
+        <div className="border-t border-zinc-800 p-3">
+          <button type="button" onClick={onLoadMore} disabled={isLoadingMore} className="w-full border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50">
+            {isLoadingMore ? 'Loading clients...' : 'Load more clients'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 export interface ClientFinancialSummaryProps {
   balances: GrantBalance[];
-  invoices: InvoiceRecord[];
+  outstandingByCurrency: Array<{ currency: string; amount: number }>;
 }
 
-export function ClientFinancialSummary({ balances, invoices }: ClientFinancialSummaryProps) {
-  const outstandingByCurrency = new Map<string, number>();
-  for (const invoice of invoices) {
-    outstandingByCurrency.set(
-      invoice.currency,
-      (outstandingByCurrency.get(invoice.currency) ?? 0) + invoice.amountDue
-    );
-  }
-
+export function ClientFinancialSummary({ balances, outstandingByCurrency }: ClientFinancialSummaryProps) {
   return (
     <section className="grid grid-cols-1 divide-y divide-zinc-800 border border-zinc-800 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
       <div className="p-4">
@@ -149,12 +154,12 @@ export function ClientFinancialSummary({ balances, invoices }: ClientFinancialSu
       </div>
       <div className="p-4">
         <h2 className="text-xs font-semibold uppercase text-zinc-500">Outstanding invoices</h2>
-        {[...outstandingByCurrency.entries()].map(([currency, amount]) => (
+        {outstandingByCurrency.map(({ currency, amount }) => (
           <p key={currency} className="mt-2 text-xl font-semibold text-amber-300">
             {new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)}
           </p>
         ))}
-        {outstandingByCurrency.size === 0 && <p className="mt-2 text-sm text-zinc-500">Nothing outstanding.</p>}
+        {outstandingByCurrency.length === 0 && <p className="mt-2 text-sm text-zinc-500">Nothing outstanding.</p>}
       </div>
     </section>
   );

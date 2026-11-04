@@ -17,6 +17,7 @@ import {
   DashboardStorageProvider,
   useDashboardStorage,
   type ClientInput,
+  type ClientFinancialSummary as ClientFinancialSummaryData,
   type ClientRecord,
   type DocumentRecord,
   type GovernanceNotification,
@@ -24,6 +25,8 @@ import {
   type GrantRecord,
   type InvoiceRecord,
 } from './StorageContext';
+
+const DASHBOARD_PAGE_SIZE = 50;
 
 const EMPTY_FORM: ClientInput = {
   firstName: '',
@@ -107,6 +110,7 @@ function DashboardContent() {
   const [grants, setGrants] = useState<GrantRecord[]>([]);
   const [grantBalances, setGrantBalances] = useState<GrantBalance[]>([]);
   const [notifications, setNotifications] = useState<GovernanceNotification[]>([]);
+  const [financialSummary, setFinancialSummary] = useState<ClientFinancialSummaryData | null>(null);
   const [selectedClientId, setSelectedClientId] = useState('');
   const [form, setForm] = useState<ClientInput>(EMPTY_FORM);
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
@@ -114,7 +118,6 @@ function DashboardContent() {
   const [grantForm, setGrantForm] = useState<GrantFormState>(EMPTY_GRANT_FORM);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedFolder, setSelectedFolder] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
   const [isSavingClient, setIsSavingClient] = useState(false);
   const [isSavingInvoice, setIsSavingInvoice] = useState(false);
   const [isSavingGrant, setIsSavingGrant] = useState(false);
@@ -122,11 +125,27 @@ function DashboardContent() {
   const [recordingPaymentId, setRecordingPaymentId] = useState<string | null>(null);
   const [paymentAmounts, setPaymentAmounts] = useState<Record<string, string>>({});
   const [isStagingDocument, setIsStagingDocument] = useState(false);
+  const [clientHasMore, setClientHasMore] = useState(false);
+  const [archivedClientHasMore, setArchivedClientHasMore] = useState(false);
+  const [documentHasMore, setDocumentHasMore] = useState(false);
+  const [invoiceHasMore, setInvoiceHasMore] = useState(false);
+  const [grantHasMore, setGrantHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState<'clients' | 'documents' | 'invoices' | 'grants' | null>(null);
+  const [selectedClientDataVersion, setSelectedClientDataVersion] = useState(0);
+  const [loadedClientDataKey, setLoadedClientDataKey] = useState('');
+  const [purgeReferenceTime, setPurgeReferenceTime] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
   const visibleClients = showArchivedClients ? archivedClients : clients;
   const selectedClient = visibleClients.find((client) => client.id === selectedClientId) ?? null;
+  const selectedClientDataKey = selectedClientId ? `${preference}:${selectedClientId}` : '';
+  const selectedClientDataReady = Boolean(selectedClientDataKey) && loadedClientDataKey === selectedClientDataKey;
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setPurgeReferenceTime(Date.now()), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   function handleStoragePreferenceChange(nextPreference: StoragePreference) {
     if (nextPreference === preference) return;
@@ -141,61 +160,143 @@ function DashboardContent() {
   useEffect(() => {
     let active = true;
     async function loadDashboard() {
-      setIsLoading(true);
       setErrorMessage('');
       try {
-        const [clientRows, archivedRows, documentRows, invoiceRows, grantRows, balanceRows, notificationRows] = await Promise.all([
-          dataService.listClients(),
-          dataService.listArchivedClients(),
-          dataService.listDocuments(),
-          dataService.listInvoices(),
-          dataService.listGrants(),
-          dataService.listGrantBalances(),
+        const [clientPage, archivedPage, notificationRows] = await Promise.all([
+          dataService.listClientPage(false, 0, DASHBOARD_PAGE_SIZE),
+          dataService.listClientPage(true, 0, DASHBOARD_PAGE_SIZE),
           dataService.listGovernanceNotifications(),
         ]);
         if (!active) return;
-        setClients(clientRows);
-        setArchivedClients(archivedRows);
-        setDocuments(documentRows);
-        setInvoices(invoiceRows);
-        setGrants(grantRows);
-        setGrantBalances(balanceRows);
+        setClients(clientPage.items);
+        setArchivedClients(archivedPage.items);
+        setClientHasMore(clientPage.hasMore);
+        setArchivedClientHasMore(archivedPage.hasMore);
         setNotifications(notificationRows);
-        const visibleRows = showArchivedClients ? archivedRows : clientRows;
+        const visibleRows = showArchivedClients ? archivedPage.items : clientPage.items;
         setSelectedClientId((current) => visibleRows.some((client) => client.id === current) ? current : (visibleRows[0]?.id ?? ''));
       } catch (error) {
         if (active) setErrorMessage(error instanceof Error ? error.message : 'Dashboard data could not be loaded.');
-      } finally {
-        if (active) setIsLoading(false);
       }
     }
     void loadDashboard();
     return () => { active = false; };
   }, [dataService, showArchivedClients]);
 
+  useEffect(() => {
+    let active = true;
+    if (!selectedClientId) {
+      return () => { active = false; };
+    }
+
+    async function loadSelectedClientData() {
+      try {
+        const [documentPage, invoicePage, grantPage, balances, summary] = await Promise.all([
+          dataService.listDocumentsPage(selectedClientId, 0, DASHBOARD_PAGE_SIZE),
+          dataService.listInvoicesPage(selectedClientId, 0, DASHBOARD_PAGE_SIZE),
+          dataService.listGrantsPage(selectedClientId, 0, DASHBOARD_PAGE_SIZE),
+          dataService.listGrantBalances(selectedClientId),
+          dataService.getClientFinancialSummary(selectedClientId),
+        ]);
+        if (!active) return;
+        setDocuments(documentPage.items);
+        setInvoices(invoicePage.items);
+        setGrants(grantPage.items);
+        setGrantBalances(balances);
+        setFinancialSummary(summary);
+        setLoadedClientDataKey(`${preference}:${selectedClientId}`);
+        setDocumentHasMore(documentPage.hasMore);
+        setInvoiceHasMore(invoicePage.hasMore);
+        setGrantHasMore(grantPage.hasMore);
+      } catch (error) {
+        if (active) setErrorMessage(error instanceof Error ? error.message : 'Selected client data could not be loaded.');
+      }
+    }
+    void loadSelectedClientData();
+    return () => { active = false; };
+  }, [dataService, preference, selectedClientId, selectedClientDataVersion]);
+
   async function refreshDashboard() {
     setErrorMessage('');
     try {
-      const [clientRows, archivedRows, documentRows, invoiceRows, grantRows, balanceRows, notificationRows] = await Promise.all([
-        dataService.listClients(),
-        dataService.listArchivedClients(),
-        dataService.listDocuments(),
-        dataService.listInvoices(),
-        dataService.listGrants(),
-        dataService.listGrantBalances(),
+      const [clientPage, archivedPage, notificationRows] = await Promise.all([
+        dataService.listClientPage(false, 0, DASHBOARD_PAGE_SIZE),
+        dataService.listClientPage(true, 0, DASHBOARD_PAGE_SIZE),
         dataService.listGovernanceNotifications(),
       ]);
-      setClients(clientRows);
-      setArchivedClients(archivedRows);
-      setDocuments(documentRows);
-      setInvoices(invoiceRows);
-      setGrants(grantRows);
-      setGrantBalances(balanceRows);
+      setClients(clientPage.items);
+      setArchivedClients(archivedPage.items);
+      setClientHasMore(clientPage.hasMore);
+      setArchivedClientHasMore(archivedPage.hasMore);
       setNotifications(notificationRows);
-      const visibleRows = showArchivedClients ? archivedRows : clientRows;
+      const visibleRows = showArchivedClients ? archivedPage.items : clientPage.items;
       setSelectedClientId((current) => visibleRows.some((client) => client.id === current) ? current : (visibleRows[0]?.id ?? ''));
+      setSelectedClientDataVersion((version) => version + 1);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Dashboard data could not be refreshed.');
+    }
+  }
+
+  async function loadMoreClients() {
+    if (loadingMore === 'clients') return;
+    setLoadingMore('clients');
+    try {
+      const archived = showArchivedClients;
+      const currentRows = archived ? archivedClients : clients;
+      const page = await dataService.listClientPage(archived, currentRows.length, DASHBOARD_PAGE_SIZE);
+      if (archived) {
+        setArchivedClients((current) => [...current, ...page.items]);
+        setArchivedClientHasMore(page.hasMore);
+      } else {
+        setClients((current) => [...current, ...page.items]);
+        setClientHasMore(page.hasMore);
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'More clients could not be loaded.');
+    } finally {
+      setLoadingMore(null);
+    }
+  }
+
+  async function loadMoreDocuments() {
+    if (!selectedClientId || !selectedClientDataReady || loadingMore === 'documents') return;
+    setLoadingMore('documents');
+    try {
+      const page = await dataService.listDocumentsPage(selectedClientId, documents.length, DASHBOARD_PAGE_SIZE);
+      setDocuments((current) => [...current, ...page.items]);
+      setDocumentHasMore(page.hasMore);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'More documents could not be loaded.');
+    } finally {
+      setLoadingMore(null);
+    }
+  }
+
+  async function loadMoreInvoices() {
+    if (!selectedClientId || !selectedClientDataReady || loadingMore === 'invoices') return;
+    setLoadingMore('invoices');
+    try {
+      const page = await dataService.listInvoicesPage(selectedClientId, invoices.length, DASHBOARD_PAGE_SIZE);
+      setInvoices((current) => [...current, ...page.items]);
+      setInvoiceHasMore(page.hasMore);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'More invoices could not be loaded.');
+    } finally {
+      setLoadingMore(null);
+    }
+  }
+
+  async function loadMoreGrants() {
+    if (!selectedClientId || !selectedClientDataReady || loadingMore === 'grants') return;
+    setLoadingMore('grants');
+    try {
+      const page = await dataService.listGrantsPage(selectedClientId, grants.length, DASHBOARD_PAGE_SIZE);
+      setGrants((current) => [...current, ...page.items]);
+      setGrantHasMore(page.hasMore);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'More grant entries could not be loaded.');
+    } finally {
+      setLoadingMore(null);
     }
   }
 
@@ -229,7 +330,8 @@ function DashboardContent() {
       const saved = editingClientId
         ? await dataService.updateClient(editingClientId, form)
         : await dataService.saveClient(form);
-      setClients((current) => [saved, ...current.filter((client) => client.id !== saved.id)]);
+      setClients((current) => [saved, ...current.filter((client) => client.id !== saved.id)].slice(0, DASHBOARD_PAGE_SIZE));
+      if (!editingClientId && clients.length >= DASHBOARD_PAGE_SIZE) setClientHasMore(true);
       setSelectedClientId(saved.id);
       setSuccessMessage(editingClientId ? 'Client profile updated.' : 'Client profile created.');
       resetForm();
@@ -247,7 +349,9 @@ function DashboardContent() {
     try {
       await dataService.archiveClient(client.id);
       setClients((current) => current.filter((entry) => entry.id !== client.id));
-      setArchivedClients(await dataService.listArchivedClients());
+      const archivedPage = await dataService.listClientPage(true, 0, DASHBOARD_PAGE_SIZE);
+      setArchivedClients(archivedPage.items);
+      setArchivedClientHasMore(archivedPage.hasMore);
       setSelectedClientId((current) => current === client.id ? '' : current);
       if (editingClientId === client.id) resetForm();
       setSuccessMessage('Client archived.');
@@ -261,7 +365,9 @@ function DashboardContent() {
     try {
       await dataService.restoreClient(client.id);
       setArchivedClients((current) => current.filter((entry) => entry.id !== client.id));
-      setClients(await dataService.listClients());
+      const activePage = await dataService.listClientPage(false, 0, DASHBOARD_PAGE_SIZE);
+      setClients(activePage.items);
+      setClientHasMore(activePage.hasMore);
       setShowArchivedClients(false);
       setSelectedClientId(client.id);
       setSuccessMessage(`${client.firstName} ${client.lastName} restored to active clients.`);
@@ -323,7 +429,8 @@ function DashboardContent() {
     setSuccessMessage('');
     try {
       const staged = await dataService.stageDocument(selectedClientId, selectedFile);
-      setDocuments((current) => [staged, ...current]);
+      setDocuments((current) => [staged, ...current].slice(0, DASHBOARD_PAGE_SIZE));
+      if (documents.length >= DASHBOARD_PAGE_SIZE) setDocumentHasMore(true);
       setSelectedFile(null);
       event.currentTarget.reset();
       setSuccessMessage(`${staged.fileName} staged successfully.`);
@@ -348,9 +455,8 @@ function DashboardContent() {
         currency: invoiceForm.currency,
         dueAt: invoiceForm.dueAt ? `${invoiceForm.dueAt}T00:00:00.000Z` : null,
       });
-      setInvoices((current) => [invoice, ...current]);
-      setGrants(await dataService.listGrants());
-      setGrantBalances(await dataService.listGrantBalances());
+      setInvoices((current) => [invoice, ...current.filter((entry) => entry.id !== invoice.id)].slice(0, DASHBOARD_PAGE_SIZE));
+      setSelectedClientDataVersion((version) => version + 1);
       setInvoiceForm(EMPTY_INVOICE_FORM);
       setSuccessMessage(
         `Invoice ${invoice.invoiceNumber} created. ${formatMoney(invoice.grantAppliedAmount, invoice.currency)} applied from grants; ${formatMoney(invoice.amountDue, invoice.currency)} remains outstanding.`
@@ -372,6 +478,7 @@ function DashboardContent() {
     try {
       const updatedInvoice = await dataService.recordInvoicePayment(invoice.id, amount);
       setInvoices((current) => current.map((entry) => entry.id === invoice.id ? updatedInvoice : entry));
+      setSelectedClientDataVersion((version) => version + 1);
       setPaymentAmounts((current) => ({ ...current, [invoice.id]: '' }));
       setSuccessMessage(`Payment recorded. ${formatMoney(updatedInvoice.amountDue, updatedInvoice.currency)} remains due.`);
     } catch (error) {
@@ -397,8 +504,8 @@ function DashboardContent() {
         source: grantForm.source,
         allocationDate: grantForm.allocationDate,
       });
-      setGrants((current) => [grant, ...current]);
-      setGrantBalances(await dataService.listGrantBalances());
+      setGrants((current) => [grant, ...current.filter((entry) => entry.id !== grant.id)].slice(0, DASHBOARD_PAGE_SIZE));
+      setSelectedClientDataVersion((version) => version + 1);
       setGrantForm(EMPTY_GRANT_FORM);
       setSuccessMessage(`Grant from ${grant.source} allocated for ${selectedClient.firstName} ${selectedClient.lastName}.`);
     } catch (error) {
@@ -440,15 +547,19 @@ function DashboardContent() {
   }
 
   const selectedClientDocuments = selectedClient
+    && selectedClientDataReady
     ? documents.filter((document) => document.clientId === selectedClient.id)
     : [];
   const selectedClientInvoices = selectedClient
+    && selectedClientDataReady
     ? invoices.filter((invoice) => invoice.clientId === selectedClient.id)
     : [];
   const selectedClientGrants = selectedClient
+    && selectedClientDataReady
     ? grants.filter((grant) => grant.clientId === selectedClient.id)
     : [];
   const selectedClientBalances = selectedClient
+    && selectedClientDataReady
     ? grantBalances.filter((balance) => balance.clientId === selectedClient.id)
     : [];
   const expirationReviews = clients.flatMap((client) => [
@@ -487,6 +598,9 @@ function DashboardContent() {
           onNewClient={handleNewClient}
           showArchived={showArchivedClients}
           onToggleArchived={() => { setShowArchivedClients((current) => !current); setSelectedClientId(''); resetForm(); }}
+          hasMoreClients={showArchivedClients ? archivedClientHasMore : clientHasMore}
+          isLoadingMore={loadingMore === 'clients'}
+          onLoadMore={() => void loadMoreClients()}
         />
       )}
       clientProfile={(
@@ -512,7 +626,7 @@ function DashboardContent() {
           )}
         </section>
       )}
-      financialSummary={<ClientFinancialSummary balances={selectedClientBalances} invoices={selectedClientInvoices} />}
+      financialSummary={<ClientFinancialSummary balances={selectedClientBalances} outstandingByCurrency={financialSummary?.outstandingByCurrency ?? []} />}
       actionHub={(
         <ClientActionHub
           onAddGrant={() => focusWorkspaceForm('grant-form')}
@@ -526,7 +640,8 @@ function DashboardContent() {
             !selectedClient ||
             selectedClient.status !== 'archived' ||
             !selectedClient.purgeEligibleAt ||
-            Date.parse(selectedClient.purgeEligibleAt) > Date.now() ||
+            purgeReferenceTime === null ||
+            Date.parse(selectedClient.purgeEligibleAt) > purgeReferenceTime ||
             isPurgingClient
           }
         />
@@ -695,13 +810,13 @@ function DashboardContent() {
               </div>
               <div className="grid grid-cols-1 divide-y divide-zinc-800 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
                 <div className="p-5">
-                  <p className="text-xs text-zinc-500">Invoices</p>
-                  <p className="mt-1 text-2xl font-semibold">{invoices.length}</p>
-                  <p className="mt-1 text-xs text-zinc-500">{invoices.filter((invoice) => invoice.status === 'overdue').length} overdue</p>
+                  <p className="text-xs text-zinc-500">Invoices for selected client</p>
+                  <p className="mt-1 text-2xl font-semibold">{financialSummary?.invoiceCount ?? 0}</p>
+                  <p className="mt-1 text-xs text-zinc-500">{financialSummary?.overdueInvoiceCount ?? 0} overdue</p>
                 </div>
                 <div className="p-5">
-                  <p className="text-xs text-zinc-500">Grant ledger entries</p>
-                  <p className="mt-1 text-2xl font-semibold">{grants.length}</p>
+                  <p className="text-xs text-zinc-500">Grant entries for selected client</p>
+                  <p className="mt-1 text-2xl font-semibold">{financialSummary?.grantCount ?? 0}</p>
                   <p className="mt-1 text-xs text-zinc-500">Latest {grants[0] ? formatDate(grants[0].createdAt) : '—'}</p>
                 </div>
                 <div className="p-5">
@@ -771,7 +886,7 @@ function DashboardContent() {
                 <div className="border-t border-zinc-800 p-5">
                   <h3 className="mb-3 text-xs font-semibold uppercase text-zinc-400">Selected client invoices</h3>
                   <div className="space-y-2">
-                    {selectedClientInvoices.slice(0, 5).map((invoice) => (
+                    {selectedClientInvoices.map((invoice) => (
                       <div key={invoice.id} className="flex items-center justify-between gap-3 text-sm">
                         <div className="flex min-w-0 items-center gap-3">
                           <span className="truncate text-zinc-300">{invoice.invoiceNumber}</span>
@@ -804,6 +919,11 @@ function DashboardContent() {
                       </div>
                     ))}
                   </div>
+                  {invoiceHasMore && (
+                    <button type="button" onClick={() => void loadMoreInvoices()} disabled={loadingMore === 'invoices'} className="mt-4 border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50">
+                      {loadingMore === 'invoices' ? 'Loading invoices...' : 'Load more invoices'}
+                    </button>
+                  )}
                 </div>
               )}
               <form id="grant-form" onSubmit={handleGrantSubmit} className="scroll-mt-24 grid grid-cols-1 gap-3 border-t border-zinc-800 p-5 sm:grid-cols-2">
@@ -883,7 +1003,7 @@ function DashboardContent() {
                 <div className="border-t border-zinc-800 p-5">
                   <h3 className="mb-3 text-xs font-semibold uppercase text-zinc-400">Selected client grants</h3>
                   <div className="space-y-2">
-                    {selectedClientGrants.slice(0, 5).map((grant) => (
+                    {selectedClientGrants.map((grant) => (
                       <div key={grant.id} className="flex items-center justify-between gap-3 text-sm">
                         <div className="min-w-0">
                           <span className="block text-zinc-300">{grant.source} {grant.reference && <span className="text-zinc-500">· {grant.reference}</span>}</span>
@@ -894,6 +1014,11 @@ function DashboardContent() {
                       </div>
                     ))}
                   </div>
+                  {grantHasMore && (
+                    <button type="button" onClick={() => void loadMoreGrants()} disabled={loadingMore === 'grants'} className="mt-4 border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50">
+                      {loadingMore === 'grants' ? 'Loading grant entries...' : 'Load more grant entries'}
+                    </button>
+                  )}
                 </div>
               )}
             </section>
@@ -922,6 +1047,13 @@ function DashboardContent() {
                       <time className="shrink-0 text-xs text-zinc-500">{formatDate(document.uploadedAt)}</time>
                     </div>
                   ))}
+                  {documentHasMore && (
+                    <div className="border-t border-zinc-800 p-4">
+                      <button type="button" onClick={() => void loadMoreDocuments()} disabled={loadingMore === 'documents'} className="border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50">
+                        {loadingMore === 'documents' ? 'Loading documents...' : 'Load more documents'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </section>
@@ -953,7 +1085,7 @@ function DashboardContent() {
               </div>
               <div className="grid grid-cols-2 divide-x divide-zinc-800 border-b border-zinc-800">
                 <div className="p-4">
-                  <p className="text-xs text-zinc-500">Expiry records on file</p>
+                  <p className="text-xs text-zinc-500">Expiry records on loaded clients</p>
                   <p className="mt-1 text-xl font-semibold">{expirationReviews.length}</p>
                 </div>
                 <div className="p-4">

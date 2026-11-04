@@ -154,27 +154,59 @@ export interface GovernanceNotification {
   deliveredAt: string | null;
 }
 
+export interface PageResult<T> {
+  items: T[];
+  hasMore: boolean;
+}
+
+export interface ClientFinancialSummary {
+  invoiceCount: number;
+  overdueInvoiceCount: number;
+  grantCount: number;
+  outstandingByCurrency: Array<{ currency: string; amount: number }>;
+}
+
 export interface IDataService {
   readonly preference: StoragePreference;
+  listClientPage(archived: boolean, offset: number, limit: number): Promise<PageResult<ClientRecord>>;
   listClients(): Promise<ClientRecord[]>;
   saveClient(input: ClientInput): Promise<ClientRecord>;
   updateClient(id: string, input: ClientInput): Promise<ClientRecord>;
   archiveClient(id: string): Promise<void>;
   listArchivedClients(): Promise<ClientRecord[]>;
+  listDocumentsPage(clientId: string, offset: number, limit: number): Promise<PageResult<DocumentRecord>>;
   restoreClient(id: string): Promise<void>;
   listDocuments(clientId?: string): Promise<DocumentRecord[]>;
   selectDocumentFolder(): Promise<string | null>;
   stageDocument(clientId: string, file: File): Promise<DocumentRecord>;
   listCredentials(clientId: string): Promise<CredentialRecord[]>;
+  listInvoicesPage(clientId: string, offset: number, limit: number): Promise<PageResult<InvoiceRecord>>;
+  getClientFinancialSummary(clientId: string): Promise<ClientFinancialSummary>;
   listInvoices(): Promise<InvoiceRecord[]>;
   createInvoice(input: InvoiceInput): Promise<InvoiceRecord>;
   recordInvoicePayment(id: string, amount: number): Promise<InvoiceRecord>;
+  listGrantsPage(clientId: string, offset: number, limit: number): Promise<PageResult<GrantRecord>>;
   listGrants(): Promise<GrantRecord[]>;
-  listGrantBalances(): Promise<GrantBalance[]>;
+  listGrantBalances(clientId?: string): Promise<GrantBalance[]>;
   createGrant(input: GrantInput): Promise<GrantRecord>;
   listGovernanceNotifications(): Promise<GovernanceNotification[]>;
   reviewPurge(clientIds: string[]): Promise<PurgeReview>;
   purgeClients(clientIds: string[]): Promise<void>;
+}
+
+const MAX_PAGE_SIZE = 100;
+
+function normalizePageBounds(offset: number, limit: number): { offset: number; limit: number } {
+  return {
+    offset: Number.isFinite(offset) ? Math.max(0, Math.trunc(offset)) : 0,
+    limit: Number.isFinite(limit) ? Math.min(MAX_PAGE_SIZE, Math.max(1, Math.trunc(limit))) : 50,
+  };
+}
+
+function paginateRows<T>(rows: T[], offset: number, limit: number): PageResult<T> {
+  const { offset: pageOffset, limit: pageLimit } = normalizePageBounds(offset, limit);
+  const page = rows.slice(pageOffset, pageOffset + pageLimit + 1);
+  return { items: page.slice(0, pageLimit), hasMore: page.length > pageLimit };
 }
 
 interface DirectoryHandleLike {
@@ -498,6 +530,11 @@ async function getActiveOrganizationId(): Promise<string> {
 class IndexedDbDataService implements IDataService {
   readonly preference = 'local' as const;
 
+  async listClientPage(archived: boolean, offset: number, limit: number): Promise<PageResult<ClientRecord>> {
+    const rows = archived ? await this.listArchivedClients() : await this.listClients();
+    return paginateRows(rows, offset, limit);
+  }
+
   async listClients(): Promise<ClientRecord[]> {
     const rows = await localRequest<(StoredClient | Record<string, unknown>)[]>(CLIENTS_STORE, 'readonly', (store) => store.getAll());
     return rows
@@ -585,6 +622,11 @@ class IndexedDbDataService implements IDataService {
       .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
   }
 
+  async listDocumentsPage(clientId: string, offset: number, limit: number): Promise<PageResult<DocumentRecord>> {
+    const rows = await this.listDocuments(clientId);
+    return paginateRows(rows, offset, limit);
+  }
+
   async selectDocumentFolder(): Promise<string | null> {
     const picker = (window as DirectoryPickerWindow).showDirectoryPicker;
     if (!picker) throw new Error('Folder selection requires a supported browser on HTTPS or localhost.');
@@ -657,6 +699,30 @@ class IndexedDbDataService implements IDataService {
       grantAppliedAmount: Number(invoice.grantAppliedAmount ?? 0),
       amountDue: Number(invoice.amountDue ?? invoice.amount),
     }));
+  }
+
+  async listInvoicesPage(clientId: string, offset: number, limit: number): Promise<PageResult<InvoiceRecord>> {
+    const rows = (await this.listInvoices())
+      .filter((invoice) => invoice.clientId === clientId)
+      .sort((a, b) => (a.dueAt ?? '').localeCompare(b.dueAt ?? '') || a.id.localeCompare(b.id));
+    return paginateRows(rows, offset, limit);
+  }
+
+  async getClientFinancialSummary(clientId: string): Promise<ClientFinancialSummary> {
+    const [invoices, grants] = await Promise.all([this.listInvoices(), this.listGrants()]);
+    const clientInvoices = invoices.filter((invoice) => invoice.clientId === clientId);
+    const outstanding = new Map<string, number>();
+    for (const invoice of clientInvoices) {
+      if (invoice.amountDue > 0) {
+        outstanding.set(invoice.currency, (outstanding.get(invoice.currency) ?? 0) + invoice.amountDue);
+      }
+    }
+    return {
+      invoiceCount: clientInvoices.length,
+      overdueInvoiceCount: clientInvoices.filter((invoice) => invoice.status === 'overdue').length,
+      grantCount: grants.filter((grant) => grant.clientId === clientId).length,
+      outstandingByCurrency: [...outstanding].map(([currency, amount]) => ({ currency, amount })),
+    };
   }
 
   async createInvoice(input: InvoiceInput): Promise<InvoiceRecord> {
@@ -787,10 +853,16 @@ class IndexedDbDataService implements IDataService {
     })).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  async listGrantBalances(): Promise<GrantBalance[]> {
+  async listGrantsPage(clientId: string, offset: number, limit: number): Promise<PageResult<GrantRecord>> {
+    const rows = (await this.listGrants()).filter((grant) => grant.clientId === clientId);
+    return paginateRows(rows, offset, limit);
+  }
+
+  async listGrantBalances(clientId?: string): Promise<GrantBalance[]> {
     const grants = await this.listGrants();
     const balances = new Map<string, GrantBalance>();
     for (const grant of grants) {
+      if (clientId && grant.clientId !== clientId) continue;
       const key = `${grant.clientId}:${grant.currency}`;
       const balance = balances.get(key) ?? { clientId: grant.clientId, currency: grant.currency, availableBalance: 0 };
       balance.availableBalance += grant.entryType === 'debit' ? -grant.amount : grant.amount;
@@ -867,6 +939,26 @@ class IndexedDbDataService implements IDataService {
 
 class SupabaseDataService implements IDataService {
   readonly preference = 'cloud' as const;
+
+  async listClientPage(archived: boolean, offset: number, limit: number): Promise<PageResult<ClientRecord>> {
+    const { offset: pageOffset, limit: pageLimit } = normalizePageBounds(offset, limit);
+    let query = getSupabaseClient()
+      .from('clients')
+      .select('id, first_name, last_name, email, company, status, archived_at, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at, deleted_at');
+    query = archived
+      ? query.or('status.eq.archived,deleted_at.not.is.null')
+      : query.is('deleted_at', null);
+    const { data, error } = await query
+      .order('updated_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(pageOffset, pageOffset + pageLimit);
+    if (error) throwSupabaseError(error, archived ? 'archived client page' : 'client page');
+    const rows = data ?? [];
+    return {
+      items: rows.slice(0, pageLimit).map((row) => mapCloudClient(row as Record<string, unknown>)),
+      hasMore: rows.length > pageLimit,
+    };
+  }
 
   async listClients(): Promise<ClientRecord[]> {
     const { data, error } = await getSupabaseClient()
@@ -950,6 +1042,24 @@ class SupabaseDataService implements IDataService {
     return (data ?? []).map((row) => mapDocument(row as Record<string, unknown>));
   }
 
+  async listDocumentsPage(clientId: string, offset: number, limit: number): Promise<PageResult<DocumentRecord>> {
+    const { offset: pageOffset, limit: pageLimit } = normalizePageBounds(offset, limit);
+    const { data, error } = await getSupabaseClient()
+      .from('documents')
+      .select('id, client_id, file_name, file_size, mime_type, storage_path, created_at')
+      .eq('client_id', clientId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(pageOffset, pageOffset + pageLimit);
+    if (error) throwSupabaseError(error, 'document page');
+    const rows = data ?? [];
+    return {
+      items: rows.slice(0, pageLimit).map((row) => mapDocument(row as Record<string, unknown>)),
+      hasMore: rows.length > pageLimit,
+    };
+  }
+
   async selectDocumentFolder(): Promise<string | null> {
     throw new Error('A host folder can only be selected in local storage mode.');
   }
@@ -1013,6 +1123,44 @@ class SupabaseDataService implements IDataService {
     return (data ?? []).map((row) => mapCloudInvoice(row as Record<string, unknown>));
   }
 
+  async listInvoicesPage(clientId: string, offset: number, limit: number): Promise<PageResult<InvoiceRecord>> {
+    const { offset: pageOffset, limit: pageLimit } = normalizePageBounds(offset, limit);
+    const { data, error } = await getSupabaseClient()
+      .from('financial_invoices')
+      .select('id, client_id, invoice_number, amount, currency, status, grant_applied_amount, amount_due, due_at')
+      .eq('client_id', clientId)
+      .is('deleted_at', null)
+      .order('due_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(pageOffset, pageOffset + pageLimit);
+    if (error) throwSupabaseError(error, 'invoice page');
+    const rows = data ?? [];
+    return {
+      items: rows.slice(0, pageLimit).map((row) => mapCloudInvoice(row as Record<string, unknown>)),
+      hasMore: rows.length > pageLimit,
+    };
+  }
+
+  async getClientFinancialSummary(clientId: string): Promise<ClientFinancialSummary> {
+    const { data, error } = await getSupabaseClient()
+      .rpc('get_client_financial_summary', { requested_client_id: clientId })
+      .single();
+    if (error) throwSupabaseError(error, 'client financial summary');
+    const summary = data as Record<string, unknown>;
+    const amounts = Array.isArray(summary.outstanding_by_currency)
+      ? summary.outstanding_by_currency as Array<Record<string, unknown>>
+      : [];
+    return {
+      invoiceCount: Number(summary.invoice_count ?? 0),
+      overdueInvoiceCount: Number(summary.overdue_invoice_count ?? 0),
+      grantCount: Number(summary.grant_count ?? 0),
+      outstandingByCurrency: amounts.map((amount) => ({
+        currency: String(amount.currency),
+        amount: Number(amount.amount),
+      })),
+    };
+  }
+
   async createInvoice(input: InvoiceInput): Promise<InvoiceRecord> {
     const invoiceInput = normalizeInvoiceInput(input);
     const { data, error } = await getSupabaseClient()
@@ -1050,6 +1198,23 @@ class SupabaseDataService implements IDataService {
     return (data ?? []).map((row) => mapCloudGrant(row as Record<string, unknown>));
   }
 
+  async listGrantsPage(clientId: string, offset: number, limit: number): Promise<PageResult<GrantRecord>> {
+    const { offset: pageOffset, limit: pageLimit } = normalizePageBounds(offset, limit);
+    const { data, error } = await getSupabaseClient()
+      .from('grants_ledger')
+      .select('id, client_id, entry_type, amount, currency, reference, description, grant_source, allocation_date, created_at')
+      .eq('client_id', clientId)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(pageOffset, pageOffset + pageLimit);
+    if (error) throwSupabaseError(error, 'grant page');
+    const rows = data ?? [];
+    return {
+      items: rows.slice(0, pageLimit).map((row) => mapCloudGrant(row as Record<string, unknown>)),
+      hasMore: rows.length > pageLimit,
+    };
+  }
+
   async createGrant(input: GrantInput): Promise<GrantRecord> {
     const grantInput = normalizeGrantInput(input);
     const { data, error } = await getSupabaseClient()
@@ -1065,10 +1230,12 @@ class SupabaseDataService implements IDataService {
     return mapCloudGrant(data as Record<string, unknown>);
   }
 
-  async listGrantBalances(): Promise<GrantBalance[]> {
-    const { data, error } = await getSupabaseClient()
+  async listGrantBalances(clientId?: string): Promise<GrantBalance[]> {
+    let query = getSupabaseClient()
       .from('client_grant_balances')
       .select('client_id, currency, available_balance');
+    if (clientId) query = query.eq('client_id', clientId);
+    const { data, error } = await query;
     if (error) throwSupabaseError(error, 'grant balance list');
     return (data ?? []).map((row) => ({
       clientId: String(row.client_id),

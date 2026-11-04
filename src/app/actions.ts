@@ -69,7 +69,9 @@ export async function getClients() {
   return await executeTenantQuery(organizationId, async (client) => {
     // RLS isolates the tenant. The soft-delete condition ensures we don't display deleted files.
     const query = `
-      SELECT * FROM clients 
+      SELECT id, first_name, last_name, email, company, status, created_at,
+             last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at
+      FROM clients
       WHERE organization_id = $1 AND deleted_at IS NULL 
       ORDER BY created_at DESC;
     `;
@@ -87,7 +89,8 @@ export async function createClient(formData: { firstName: string; lastName: stri
     const query = `
       INSERT INTO clients (organization_id, first_name, last_name, email)
       VALUES ($1, $2, $3, $4)
-      RETURNING *;
+      RETURNING id, first_name, last_name, email, company, status, created_at,
+            last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at;
     `;
     const res = await client.query(query, [
       organizationId,
@@ -110,7 +113,7 @@ export async function updateClientStatus(clientId: string, newStatus: string) {
       UPDATE clients 
       SET status = $1 
       WHERE id = $2 AND organization_id = $3
-      RETURNING *;
+      RETURNING id, status, updated_at;
     `;
     const res = await client.query(query, [newStatus, clientId, organizationId]);
     return res.rows[0];
