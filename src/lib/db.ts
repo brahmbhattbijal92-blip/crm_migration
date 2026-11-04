@@ -1,3 +1,5 @@
+import 'server-only';
+
 import { Pool, PoolClient } from 'pg';
 
 // Initialize a shared, global database connection engine pool
