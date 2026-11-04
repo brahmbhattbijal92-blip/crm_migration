@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Migration Form Assistant",
+  "version": "1.0.0",
+  "description": "User-initiated profile field transfer to the approved ImmiAccount portal.",
+  "minimum_chrome_version": "116",
+  "permissions": ["tabs", "storage"],
+  "host_permissions": ["https://online.immi.gov.au/*"],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://online.immi.gov.au/*"],
+      "js": ["content-script.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "externally_connectable": {
+    "matches": ["http://localhost:3000/*"]
+  }
+}

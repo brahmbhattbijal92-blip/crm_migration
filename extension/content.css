@@ -1,0 +1,63 @@
+.migration-assistant-root {
+  all: initial;
+  position: fixed;
+  z-index: 2147483647;
+  right: 20px;
+  bottom: 20px;
+  width: 280px;
+  color: #f4f4f5;
+  font-family: Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.migration-assistant-card {
+  box-sizing: border-box;
+  padding: 14px;
+  border: 1px solid #3f3f46;
+  background: #18181b;
+  box-shadow: 0 12px 36px rgb(0 0 0 / 35%);
+}
+
+.migration-assistant-title {
+  margin: 0 0 6px;
+  color: #a7f3d0;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.migration-assistant-status {
+  min-height: 36px;
+  margin: 0 0 10px;
+  color: #d4d4d8;
+}
+
+.migration-assistant-button {
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: #10b981;
+  color: #052e25;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.migration-assistant-button:hover,
+.migration-assistant-button-ready {
+  background: #34d399;
+}
+
+.migration-assistant-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+@media (max-width: 480px) {
+  .migration-assistant-root {
+    right: 10px;
+    bottom: 10px;
+    width: min(280px, calc(100vw - 20px));
+  }
+}
