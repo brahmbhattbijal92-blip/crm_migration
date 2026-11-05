@@ -43,8 +43,47 @@ function escapePostgrestValue(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-function safeFileName(fileName: string): string {
-  return fileName.replace(/[\\/\0]/g, '_').replace(/[^a-zA-Z0-9._-]/g, '_');
+async function assertClientCanReceiveDocuments(
+  supabase: ReturnType<typeof getSupabaseClient>,
+  clientId: string
+): Promise<void> {
+  const { error } = await supabase.rpc('assert_client_document_uploadable', {
+    requested_client_id: clientId,
+  });
+  if (error?.code === '55000') {
+    throw new DataServiceError(
+      'This client is archived, deleted, or locked for purge and cannot accept documents.',
+      'DOCUMENT_CLIENT_LOCKED',
+      'WARNING',
+      error
+    );
+  }
+  if (error) throwSupabaseError(error, 'client upload eligibility check');
+}
+
+async function removeUploadedObject(
+  bucket: ReturnType<ReturnType<typeof getSupabaseClient>['storage']['from']>,
+  objectPath: string,
+  documentId: string
+): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const { error } = await bucket.remove([objectPath]);
+      if (!error) return;
+      lastError = error;
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+  }
+
+  throw new DataServiceError(
+    `The document could not be saved and cleanup could not be confirmed. Contact support with reference ${documentId}.`,
+    'DOCUMENT_CLEANUP_FAILED',
+    'CRITICAL',
+    lastError
+  );
 }
 
 async function getActiveOrganizationId(supabase: ReturnType<typeof getSupabaseClient>): Promise<string> {
@@ -140,16 +179,21 @@ export class CloudDataService extends DataService {
   async uploadDocument(clientId: string, file: File): Promise<DocumentMetadata> {
     const supabase = getSupabaseClient();
     const organizationId = await getActiveOrganizationId(supabase);
-    const objectPath = `${organizationId}/${safeFileName(clientId)}/${crypto.randomUUID()}-${safeFileName(file.name)}`;
-    const bucket = supabase.storage.from(STORAGE_BUCKET);
-    const { error: uploadError } = await bucket.upload(objectPath, file, {
-      contentType: file.type || 'application/octet-stream',
-      upsert: false,
-    });
+    await assertClientCanReceiveDocuments(supabase, clientId);
 
-    if (uploadError) throwSupabaseError(uploadError, 'document upload');
+    const documentId = crypto.randomUUID();
+    const objectPath = `${organizationId}/${clientId}/${documentId}`;
+    const bucket = supabase.storage.from(STORAGE_BUCKET);
+    let objectUploaded = false;
 
     try {
+      const { error: uploadError } = await bucket.upload(objectPath, file, {
+        contentType: file.type || 'application/octet-stream',
+        upsert: false,
+      });
+      if (uploadError) throwSupabaseError(uploadError, 'document upload');
+      objectUploaded = true;
+
       const { data: signedUrl, error: signedUrlError } = await bucket.createSignedUrl(
         objectPath,
         SIGNED_URL_TTL_SECONDS
@@ -159,6 +203,7 @@ export class CloudDataService extends DataService {
       const { data, error } = await supabase
         .from(DOCUMENT_TABLE)
         .insert({
+          id: documentId,
           organization_id: organizationId,
           client_id: clientId,
           file_name: file.name,
@@ -180,8 +225,14 @@ export class CloudDataService extends DataService {
         uploadedAt: String(data.created_at ?? new Date().toISOString()),
       };
     } catch (error) {
-      const { error: cleanupError } = await bucket.remove([objectPath]);
-      if (cleanupError) console.error('[CloudDataService] Failed to remove orphaned Storage object.', cleanupError);
+      if (objectUploaded) {
+        try {
+          await removeUploadedObject(bucket, objectPath, documentId);
+        } catch (cleanupError) {
+          console.error('[CloudDataService] Failed to remove orphaned Storage object.', cleanupError);
+          throw cleanupError;
+        }
+      }
       throw error;
     }
   }

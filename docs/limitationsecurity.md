@@ -43,7 +43,14 @@ The active credential list requests only `id`, `client_id`, `portal_name`, and `
 
 The values are ciphertext, not plaintext, and the vault master key is server-side. Keep credential writes and decryption behind server-side actions and verify the deployed column grants before relying on this boundary.
 
-The explicit reveal action returns plaintext to the requesting browser after a verification challenge. That is an intentional display path, not a hidden-column fetch; reveal is currently disabled outside development. The challenge and rate limit are in process-local memory, so they are not suitable for enabling production reveal across multiple instances or restarts without a shared short-lived store and real delivery provider.
+The explicit reveal action returns plaintext to the requesting browser after a verification challenge. That is an intentional display path, not a hidden-column fetch; reveal remains disabled outside development until a real delivery provider is configured. Challenge state is stored in Upstash Redis with a five-minute TTL, verified grants expire after 30 seconds and are one-time, and an atomic Redis-time sliding window limits each user to three verification attempts per 15 minutes across instances. Redis or signing-key configuration errors fail closed.
+
+Two challenge-state designs are supported conceptually:
+
+- **Encrypted JWT/JWE:** The server signs and encrypts a short-lived challenge state containing the user, organization, credential, field, OTP digest, and expiry, then returns it to the client. This avoids challenge lookup state, but a token alone cannot enforce the global three-per-15-minute limit or prevent replay after successful verification; those controls still require shared state.
+- **Upstash Redis (implemented):** Redis stores challenge and one-time grant keys with automatic TTLs. `GETDEL` makes consumption single-use, and one Lua operation applies the global sliding-window attempt limit. This is the recommended option for the current security requirements.
+
+Configure `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, and a stable 32-byte hex `VAULT_CHALLENGE_SECRET` on every server instance. Keep the reveal feature disabled in production until a real OTP delivery provider is integrated; the development code simulation is not a production delivery mechanism.
 
 ### Client table
 

@@ -115,6 +115,7 @@ describe('CloudDataService fetch operations', () => {
       error: null,
     });
     const upload = vi.fn().mockResolvedValue({ error: null });
+    const remove = vi.fn().mockResolvedValue({ error: null });
     const createSignedUrl = vi.fn().mockResolvedValue({
       data: { signedUrl: 'https://storage.example/signed' },
       error: null,
@@ -123,8 +124,9 @@ describe('CloudDataService fetch operations', () => {
       auth: {
         getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null }),
       },
+      rpc: vi.fn().mockResolvedValue({ data: null, error: null }),
       from: vi.fn((table: string) => table === 'profiles' ? profileQuery : documentQuery),
-      storage: { from: vi.fn(() => ({ upload, createSignedUrl, remove: vi.fn() })) },
+      storage: { from: vi.fn(() => ({ upload, createSignedUrl, remove })) },
     };
     getSupabaseClientMock.mockReturnValue(supabase);
 
@@ -134,9 +136,15 @@ describe('CloudDataService fetch operations', () => {
     );
 
     const [objectPath] = upload.mock.calls[0] as [string];
-    expect(objectPath).toMatch(new RegExp(`^${organizationId}/${clientId}/[0-9a-f-]+-passport\\.pdf$`));
+    const insertedMetadata = documentQuery.insert.mock.calls[0][0] as Record<string, unknown>;
+    expect(objectPath).toBe(`${organizationId}/${clientId}/${insertedMetadata.id}`);
+    expect(supabase.rpc).toHaveBeenCalledWith('assert_client_document_uploadable', {
+      requested_client_id: clientId,
+    });
+    expect(supabase.rpc.mock.invocationCallOrder[0]).toBeLessThan(upload.mock.invocationCallOrder[0]);
     expect(supabase.from).toHaveBeenCalledWith('documents');
     expect(documentQuery.insert).toHaveBeenCalledWith(expect.objectContaining({
+      id: insertedMetadata.id,
       organization_id: organizationId,
       client_id: clientId,
       storage_path: objectPath,
@@ -146,6 +154,82 @@ describe('CloudDataService fetch operations', () => {
       clientId,
       uploadedAt: '2026-11-05T12:00:00.000Z',
     });
+  });
+
+  it('rejects a locked client before uploading any bytes', async () => {
+    const organizationId = 'c5a1970a-cf77-448a-8e15-88f0d7b6a355';
+    const profileQuery = createQuery({
+      data: { default_organization_id: organizationId },
+      error: null,
+    });
+    const upload = vi.fn();
+    const supabase = {
+      auth: {
+        getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null }),
+      },
+      rpc: vi.fn().mockResolvedValue({
+        data: null,
+        error: { code: '55000', message: 'Client is locked.' },
+      }),
+      from: vi.fn().mockReturnValue(profileQuery),
+      storage: { from: vi.fn(() => ({ upload })) },
+    };
+    getSupabaseClientMock.mockReturnValue(supabase);
+
+    await expect(service.uploadDocument(
+      '9ba6bd8b-f238-4efb-9200-7405eebfd6c7',
+      { name: 'passport.pdf', type: 'application/pdf', size: 10 } as File
+    )).rejects.toMatchObject({
+      code: 'DOCUMENT_CLIENT_LOCKED',
+      message: 'This client is archived, deleted, or locked for purge and cannot accept documents.',
+    });
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it('retries object deletion when metadata creation fails', async () => {
+    const organizationId = 'c5a1970a-cf77-448a-8e15-88f0d7b6a355';
+    const clientId = '9ba6bd8b-f238-4efb-9200-7405eebfd6c7';
+    const profileQuery = createQuery({
+      data: { default_organization_id: organizationId },
+      error: null,
+    });
+    const documentQuery = createQuery({
+      data: null,
+      error: { code: '42501', message: 'metadata insert failed' },
+    });
+    const upload = vi.fn().mockResolvedValue({ error: null });
+    const remove = vi.fn()
+      .mockResolvedValueOnce({ error: { message: 'temporary storage error' } })
+      .mockResolvedValue({ error: null });
+    const supabase = {
+      auth: {
+        getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null }),
+      },
+      rpc: vi.fn().mockResolvedValue({ data: null, error: null }),
+      from: vi.fn((table: string) => table === 'profiles' ? profileQuery : documentQuery),
+      storage: { from: vi.fn(() => ({
+        upload,
+        createSignedUrl: vi.fn().mockResolvedValue({
+          data: { signedUrl: 'https://storage.example/signed' },
+          error: null,
+        }),
+        remove,
+      })) },
+    };
+    getSupabaseClientMock.mockReturnValue(supabase);
+
+    await expect(service.uploadDocument(
+      clientId,
+      { name: 'passport.pdf', type: 'application/pdf', size: 10 } as File
+    )).rejects.toMatchObject({
+      code: '42501',
+      message: 'Supabase document metadata save failed: metadata insert failed',
+    });
+
+    const [objectPath] = upload.mock.calls[0] as [string];
+    expect(remove).toHaveBeenCalledTimes(2);
+    expect(remove).toHaveBeenNthCalledWith(1, [objectPath]);
+    expect(remove).toHaveBeenNthCalledWith(2, [objectPath]);
   });
 
   it('returns an empty result when the search has no rows or count', async () => {

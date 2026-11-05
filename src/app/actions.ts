@@ -1,8 +1,21 @@
 'use server';
 
-import { createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { executeTenantQuery } from '@/src/lib/db';
 import { requireOrganizationContext } from '@/src/lib/supabase/server';
+import {
+  consumeVaultOtpChallenge,
+  consumeVaultOtpVerificationAttempt,
+  consumeVaultOtpVerifiedGrant,
+  createVaultOtpDigest,
+  deleteVaultOtpState,
+  issueVaultOtpChallenge,
+  readVaultOtpChallenge,
+  readVaultOtpVerifiedGrant,
+  reserveVaultOtpRequest,
+  saveVaultOtpVerifiedGrant,
+  verifyVaultOtpDigest,
+} from '@/src/lib/vault-challenge-store';
 import {
   decryptVaultData,
   encryptVaultData,
@@ -10,50 +23,19 @@ import {
 } from '@/src/lib/crypto';
 type VaultField = 'username' | 'password';
 
-interface VaultOtpChallenge {
-  vaultId: string;
-  field: VaultField;
-  userId: string;
-  organizationId: string;
-  otpHash: Buffer;
-  expiresAt: number;
-  attempts: number;
-  verifiedUntil?: number;
-}
-
 interface VaultCredentialMetadata {
   id: string;
   portalName: string;
   lastVerified: string;
 }
 
-const vaultOtpSigningKey = randomBytes(32);
-const vaultOtpChallenges = new Map<string, VaultOtpChallenge>();
-const vaultOtpLastRequested = new Map<string, number>();
 const VAULT_OTP_TTL_MS = 5 * 60 * 1000;
 const VAULT_OTP_REVEAL_GRANT_MS = 30 * 1000;
-const VAULT_OTP_MAX_ATTEMPTS = 5;
-const VAULT_OTP_RESEND_DELAY_MS = 30 * 1000;
-
-function hashVaultOtp(challengeId: string, pin: string): Buffer {
-  return createHmac('sha256', vaultOtpSigningKey).update(`${challengeId}:${pin}`).digest();
-}
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function maskPhoneNumber(phoneNumber: string | undefined): string {
   const digits = phoneNumber?.replace(/\D/g, '') ?? '';
   return digits.length >= 4 ? `••••••${digits.slice(-4)}` : 'configured agent phone';
-}
-
-function removeExpiredVaultChallenges(): void {
-  const now = Date.now();
-  for (const [challengeId, challenge] of vaultOtpChallenges) {
-    if (challenge.expiresAt <= now || (challenge.verifiedUntil && challenge.verifiedUntil <= now)) {
-      vaultOtpChallenges.delete(challengeId);
-    }
-  }
-  for (const [rateLimitKey, requestedAt] of vaultOtpLastRequested) {
-    if (now - requestedAt >= VAULT_OTP_RESEND_DELAY_MS) vaultOtpLastRequested.delete(rateLimitKey);
-  }
 }
 
 async function getActiveOrganizationId(agentOrAdminOnly = false): Promise<string> {
@@ -217,17 +199,9 @@ export async function getVaultCredentials(clientId: string) {
 export async function requestVaultOtp(vaultId: string, field: VaultField) {
   if (typeof vaultId !== 'string' || !vaultId.trim()) throw new Error('Vault record is required.');
   if (field !== 'username' && field !== 'password') throw new Error('Invalid credential field.');
+  const { organizationId, user } = await requireOrganizationContext({ agentOrAdminOnly: true });
   if (process.env.NODE_ENV !== 'development') {
     throw new Error('Vault SMS delivery is not configured. Credential reveal is disabled outside development.');
-  }
-
-  removeExpiredVaultChallenges();
-  const { organizationId, user } = await requireOrganizationContext({ agentOrAdminOnly: true });
-  const rateLimitKey = `${user.id}:${vaultId}:${field}`;
-  const now = Date.now();
-  const lastRequested = vaultOtpLastRequested.get(rateLimitKey);
-  if (lastRequested && now - lastRequested < VAULT_OTP_RESEND_DELAY_MS) {
-    throw new Error('A verification code was just requested. Wait 30 seconds before trying again.');
   }
 
   const recordExists = await executeTenantQuery(organizationId, async (client) => {
@@ -238,20 +212,22 @@ export async function requestVaultOtp(vaultId: string, field: VaultField) {
     return result.rows.length > 0;
   });
   if (!recordExists) throw new Error('Vault record was not found or is not accessible.');
+  if (!(await reserveVaultOtpRequest(user.id))) {
+    throw new Error('A verification code was just requested. Wait 30 seconds before trying again.');
+  }
 
   const challengeId = randomUUID();
   const pin = String(randomInt(0, 1_000_000)).padStart(6, '0');
-  const expiresAt = now + VAULT_OTP_TTL_MS;
-  vaultOtpChallenges.set(challengeId, {
+  const expiresAt = Date.now() + VAULT_OTP_TTL_MS;
+  await issueVaultOtpChallenge(challengeId, {
+    challengeId,
     vaultId,
     field,
     userId: user.id,
     organizationId,
-    otpHash: hashVaultOtp(challengeId, pin),
+    otpDigest: createVaultOtpDigest(challengeId, pin),
     expiresAt,
-    attempts: 0,
   });
-  vaultOtpLastRequested.set(rateLimitKey, now);
 
   return {
     challengeId,
@@ -262,45 +238,67 @@ export async function requestVaultOtp(vaultId: string, field: VaultField) {
 }
 
 export async function verifyVaultOtp(challengeId: string, pin: string) {
-  const challenge = vaultOtpChallenges.get(challengeId);
   const { organizationId, user } = await requireOrganizationContext({ agentOrAdminOnly: true });
+  const attempt = await consumeVaultOtpVerificationAttempt(user.id);
+  if (!attempt.allowed) {
+    throw new Error('Too many verification attempts. Please wait 15 minutes before trying again.');
+  }
+  if (typeof challengeId !== 'string' || !UUID_PATTERN.test(challengeId)) {
+    throw new Error('Verification code is invalid or expired. Request a new code.');
+  }
+
+  const challenge = await readVaultOtpChallenge(challengeId);
   if (
     !challenge ||
+    challenge.challengeId !== challengeId ||
     challenge.userId !== user.id ||
     challenge.organizationId !== organizationId ||
-    challenge.expiresAt <= Date.now() ||
-    challenge.attempts >= VAULT_OTP_MAX_ATTEMPTS ||
-    challenge.verifiedUntil
+    challenge.expiresAt <= Date.now()
   ) {
-    vaultOtpChallenges.delete(challengeId);
     throw new Error('Verification code is invalid or expired. Request a new code.');
   }
 
   if (typeof pin !== 'string' || !/^\d{6}$/.test(pin)) {
-    challenge.attempts += 1;
-    if (challenge.attempts >= VAULT_OTP_MAX_ATTEMPTS) vaultOtpChallenges.delete(challengeId);
     throw new Error('Enter the six-digit verification code.');
   }
 
-  const submittedHash = hashVaultOtp(challengeId, pin);
-  if (!timingSafeEqual(challenge.otpHash, submittedHash)) {
-    challenge.attempts += 1;
-    if (challenge.attempts >= VAULT_OTP_MAX_ATTEMPTS) vaultOtpChallenges.delete(challengeId);
+  if (!verifyVaultOtpDigest(challengeId, pin, challenge.otpDigest)) {
     throw new Error('Verification code is invalid or expired.');
   }
 
-  challenge.verifiedUntil = Date.now() + VAULT_OTP_REVEAL_GRANT_MS;
-  return { verified: true, expiresAt: challenge.verifiedUntil };
+  const consumedChallenge = await consumeVaultOtpChallenge(challengeId);
+  if (
+    !consumedChallenge ||
+    consumedChallenge.userId !== user.id ||
+    consumedChallenge.organizationId !== organizationId ||
+    !verifyVaultOtpDigest(challengeId, pin, consumedChallenge.otpDigest)
+  ) {
+    throw new Error('Verification code is invalid or expired. Request a new code.');
+  }
+
+  const verifiedUntil = Date.now() + VAULT_OTP_REVEAL_GRANT_MS;
+  await saveVaultOtpVerifiedGrant(challengeId, {
+    challengeId,
+    vaultId: consumedChallenge.vaultId,
+    field: consumedChallenge.field,
+    userId: user.id,
+    organizationId,
+    verifiedUntil,
+  });
+  return { verified: true, expiresAt: verifiedUntil };
 }
 
 export async function cancelVaultOtp(challengeId: string): Promise<void> {
-  const challenge = vaultOtpChallenges.get(challengeId);
-  if (!challenge) return;
   const { organizationId, user } = await requireOrganizationContext({ agentOrAdminOnly: true });
-  if (challenge.userId !== user.id || challenge.organizationId !== organizationId) {
+  if (typeof challengeId !== 'string' || !UUID_PATTERN.test(challengeId)) return;
+  const challenge = await readVaultOtpChallenge(challengeId);
+  const grant = challenge ? null : await readVaultOtpVerifiedGrant(challengeId);
+  const state = challenge ?? grant;
+  if (!state) return;
+  if (state.userId !== user.id || state.organizationId !== organizationId) {
     throw new Error('Verification challenge is not available to this account.');
   }
-  vaultOtpChallenges.delete(challengeId);
+  await deleteVaultOtpState(challengeId);
 }
 
 export async function getDecryptedCredential(
@@ -308,20 +306,40 @@ export async function getDecryptedCredential(
   challengeId: string,
   field: VaultField
 ): Promise<{ value: string }> {
-  const challenge = vaultOtpChallenges.get(challengeId);
   const { organizationId, user } = await requireOrganizationContext({ agentOrAdminOnly: true });
   if (
-    !challenge ||
-    challenge.vaultId !== vaultId ||
-    challenge.field !== field ||
-    challenge.userId !== user.id ||
-    challenge.organizationId !== organizationId ||
-    !challenge.verifiedUntil ||
-    challenge.verifiedUntil <= Date.now()
+    typeof challengeId !== 'string' ||
+    !UUID_PATTERN.test(challengeId) ||
+    typeof vaultId !== 'string' ||
+    !UUID_PATTERN.test(vaultId) ||
+    (field !== 'username' && field !== 'password')
   ) {
     throw new Error('A valid security challenge is required before revealing this credential.');
   }
-  vaultOtpChallenges.delete(challengeId);
+  const grant = await readVaultOtpVerifiedGrant(challengeId);
+  if (
+    !grant ||
+    grant.challengeId !== challengeId ||
+    grant.vaultId !== vaultId ||
+    grant.field !== field ||
+    grant.userId !== user.id ||
+    grant.organizationId !== organizationId ||
+    grant.verifiedUntil <= Date.now()
+  ) {
+    throw new Error('A valid security challenge is required before revealing this credential.');
+  }
+
+  const consumedGrant = await consumeVaultOtpVerifiedGrant(challengeId);
+  if (
+    !consumedGrant ||
+    consumedGrant.vaultId !== vaultId ||
+    consumedGrant.field !== field ||
+    consumedGrant.userId !== user.id ||
+    consumedGrant.organizationId !== organizationId ||
+    consumedGrant.verifiedUntil <= Date.now()
+  ) {
+    throw new Error('A valid security challenge is required before revealing this credential.');
+  }
 
   const row = await executeTenantQuery(organizationId, async (client) => {
     const res = await client.query(

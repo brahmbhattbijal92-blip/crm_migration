@@ -48,7 +48,7 @@ Direct authenticated client updates no longer include status, archive timestamp,
 
 Cloud operations previously fell back to Local storage after any error, including authorization and schema failures. This could report a successful operation while leaving its data in a different storage domain than the user selected. Cloud failures now propagate; Local storage is used only when Local is explicitly selected.
 
-The Cloud data service now uses explicit client-column projections, supplies the active organization on inserts, archives through the guarded RPC, and writes document metadata to `public.documents`. Storage object paths use `<organization-id>/<client-id>/...`, matching the storage RLS policies. Regression tests cover Cloud-to-Local isolation and the tenant-scoped upload path.
+The Cloud data service now uses explicit client-column projections, supplies the active organization on inserts, archives through the guarded RPC, and writes document metadata to `public.documents`. A guarded preflight rejects archived, deleted, or purge-locked clients before upload; the metadata trigger and Storage RLS recheck client state. Storage object paths use `<organization-id>/<client-id>/<document-id>`, with the same generated document ID in the metadata row. Regression tests cover Cloud-to-Local isolation, the tenant-scoped upload path, locked clients, and cleanup retries.
 
 ### Verified in source: Narrow notification and organization privileges
 
@@ -73,7 +73,7 @@ No intentional anon read policy for application rows was found in the schema. Di
 - **Single active organization:** A profile has one `default_organization_id`. Memberships support more than one organization, but there is no organization switcher or explicit active-organization session model.
 - **Financial hot rows:** Grant allocation and invoice settlement lock the client row to prevent double spending. This is correct for consistency, but a client with many simultaneous transactions becomes a serialization point.
 - **Growing ledgers and storage:** Grant, invoice, notification, and object-storage records accumulate. Define retention, archival, object cleanup, and operational monitoring before high volume; partition only after measured growth warrants it.
-- **In-memory vault challenges:** OTP challenges and rate limits live in a process-local `Map` with a per-process signing key. They do not survive restarts or work reliably across multiple instances. Reveal is disabled outside development today; production reveal needs a shared short-lived store, provider-backed delivery, and user-bound challenges.
+- **Vault challenge delivery:** Challenge/grant state and the three-attempt-per-15-minute user limit now use Upstash Redis, with TTLs and an atomic Lua sliding-window update shared across instances. Reveal remains disabled outside development until a real OTP delivery provider is integrated. Configure a stable `VAULT_CHALLENGE_SECRET` and Upstash credentials on all instances.
 - **No billing entitlement source:** Paid plans and plan-gated backup are not implemented. Do not show or enforce paid-only functions based on client-side flags.
 - **No live SQL verification:** The schema and RPCs must be applied and tested in a staging Supabase project. A passing Next.js build does not parse or execute PostgreSQL functions.
 

@@ -48,7 +48,7 @@ Use the **Storage** menu in the dashboard header.
 - **Team access:** Owners and admins can review team members and invite agents.
 - **Data lifecycle:** Review inactive accounts, export the selected inactivity report as CSV, and follow the purge checks. This CSV is not a full Local backup.
 - **Expiry reminders:** The worker records simulated passport and visa reminders at 90, 60, and 30 days. It does not send a real email or text message.
-- **Credential vault:** Saved credentials are encrypted. Credential reveal is disabled outside development until a real SMS provider and shared challenge storage are configured.
+- **Credential vault:** Saved credentials are encrypted. Reveal remains disabled outside development until a real SMS provider is configured; shared challenge storage and global verification limits use Upstash Redis.
 - **Companion extension:** Profile sharing requires the separately installed browser extension. It shares selected profile fields for a one-time form fill.
 
 ## 6. Protect Your Work
