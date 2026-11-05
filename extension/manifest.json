@@ -18,6 +18,9 @@
     }
   ],
   "externally_connectable": {
-    "matches": ["http://localhost:3000/*"]
+    "matches": [
+      "http://localhost:3000/*",
+      "https://crm-migration-three.vercel.app/*"
+    ]
   }
 }

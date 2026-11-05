@@ -1,4 +1,7 @@
-const TRUSTED_APP_ORIGIN = 'http://localhost:3000';
+const TRUSTED_APP_ORIGINS = new Set([
+  'http://localhost:3000',
+  'https://crm-migration-three.vercel.app',
+]);
 const TRUSTED_PORTAL_ORIGIN = 'https://online.immi.gov.au';
 const PROFILE_TTL_MS = 5 * 60 * 1000;
 const MAX_FIELD_LENGTH = 320;
@@ -43,7 +46,8 @@ function normalizeProfile(profile) {
 function isTrustedAppSender(sender) {
   if (!sender.url || !sender.origin) return false;
   try {
-    return new URL(sender.url).origin === TRUSTED_APP_ORIGIN && sender.origin === TRUSTED_APP_ORIGIN;
+    const senderOrigin = new URL(sender.url).origin;
+    return TRUSTED_APP_ORIGINS.has(senderOrigin) && sender.origin === senderOrigin;
   } catch {
     return false;
   }
