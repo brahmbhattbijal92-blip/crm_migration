@@ -66,7 +66,10 @@ export default function LoginPage() {
             <input required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className="w-full border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-sm outline-none focus:border-emerald-500" />
           </label>
           <label className="block space-y-1.5">
-            <span className="text-xs text-zinc-400">Password</span>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-zinc-400">Password</span>
+              <Link href="/forgot-password" className="text-sm font-medium text-emerald-300 underline underline-offset-4 hover:text-emerald-200">Forgot password?</Link>
+            </div>
             <input required type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} className="w-full border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-sm outline-none focus:border-emerald-500" />
           </label>
           <button type="submit" disabled={isSubmitting} className="w-full bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-50">
