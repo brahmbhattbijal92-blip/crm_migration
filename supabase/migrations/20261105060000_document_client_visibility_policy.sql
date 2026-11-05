@@ -1,5 +1,45 @@
 BEGIN;
 
+CREATE OR REPLACE FUNCTION app.prevent_write_during_client_purge()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
+  active_organization_id uuid := app.current_organization_id();
+  client_status text;
+  client_deleted_at timestamptz;
+  client_purge_locked_at timestamptz;
+BEGIN
+  IF auth.uid() IS NULL
+    OR NEW.organization_id IS DISTINCT FROM active_organization_id
+    OR NOT app.can_manage_organization_data(NEW.organization_id)
+  THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '42501',
+      MESSAGE = 'Agent or administrator access is required to modify client records.';
+  END IF;
+
+  SELECT clients.status, clients.deleted_at, clients.purge_locked_at
+    INTO client_status, client_deleted_at, client_purge_locked_at
+    FROM public.clients AS clients
+    WHERE clients.id = NEW.client_id
+      AND clients.organization_id = NEW.organization_id
+    FOR UPDATE;
+
+  IF NOT FOUND OR client_status = 'archived' OR client_deleted_at IS NOT NULL OR client_purge_locked_at IS NOT NULL THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '55000',
+      MESSAGE = 'Writes are blocked for archived, deleted, or purge-locked clients.';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION app.prevent_write_during_client_purge() FROM PUBLIC, anon, authenticated;
+
 CREATE OR REPLACE FUNCTION app.prevent_document_during_client_purge()
 RETURNS trigger
 LANGUAGE plpgsql
