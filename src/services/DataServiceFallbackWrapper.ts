@@ -1,6 +1,6 @@
 import { DataService } from './DataService';
 import { Client, DocumentMetadata, SearchQuery, SearchResult } from '../types/data';
-import { DataServiceError, NetworkTimeoutError, StorageEngineError } from '../errors/DataErrors';
+import { DataServiceError, StorageEngineError } from '../errors/DataErrors';
 
 export class DataServiceFallbackWrapper extends DataService {
   constructor(
@@ -11,11 +11,8 @@ export class DataServiceFallbackWrapper extends DataService {
     super();
   }
 
-  /**
-   * Universal runtime decorator execution block to swallow or reroute operational dropouts.
-   */
-  private async executeWithFallback<T>(
-    operationName: string,
+  /** Routes each operation only to the explicitly selected storage domain. */
+  private async executeInSelectedStorage<T>(
     cloudOp: () => Promise<T>,
     localOp: () => Promise<T>
   ): Promise<T> {
@@ -25,61 +22,22 @@ export class DataServiceFallbackWrapper extends DataService {
       try {
         return await localOp();
       } catch (err) {
-        throw new StorageEngineError(`Local IndexedDB operation failed [${operationName}]`, err);
+        throw new StorageEngineError('Local IndexedDB operation failed.', err);
       }
     }
 
-    // Processing using Cloud Engine with immediate local failover fallback mechanics
-    try {
-      // Impose a baseline runtime execution gate context deadline
-      return await Promise.race([
-        cloudOp(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new NetworkTimeoutError()), 8000)
-        ),
-      ]);
-    } catch (error) {
-      console.warn(`[FallbackWrapper] Cloud engine hit an exception during ${operationName}. Dropping back down to local storage logs.`, error);
-      
-      // Persist metadata locally into the local mutation transaction tracker table 
-      await this.queueOfflineMutation(operationName, error);
-      
-      try {
-        return await localOp();
-      } catch (localErr) {
-        throw new StorageEngineError(`Total fallback pipeline failure. Both Local and Cloud strategies exhausted on [${operationName}].`, localErr);
-      }
-    }
-  }
-
-  private async queueOfflineMutation(operationName: string, error: unknown) {
-    if (typeof window === 'undefined') return;
-    try {
-      const queue = JSON.parse(localStorage.getItem('crm_pending_sync_queue') || '[]');
-      queue.push({
-        id: crypto.randomUUID(),
-        operation: operationName,
-        timestamp: new Date().toISOString(),
-        errorMessage: error instanceof Error ? error.message : 'Unknown network failure',
-      });
-      localStorage.setItem('crm_pending_sync_queue', JSON.stringify(queue));
-      window.dispatchEvent(new Event('local-storage-update')); // Alert context streams
-    } catch (e) {
-      console.error('Failed caching offline mutation index ledger.', e);
-    }
+    return cloudOp();
   }
 
   async saveClient(client: Omit<Client, 'updatedAt'>): Promise<Client> {
-    return this.executeWithFallback(
-      'saveClient',
+    return this.executeInSelectedStorage(
       () => this.cloudEngine.saveClient(client),
       () => this.localEngine.saveClient(client)
     );
   }
 
   async findClient(id: string): Promise<Client | null> {
-    return this.executeWithFallback(
-      'findClient',
+    return this.executeInSelectedStorage(
       () => this.cloudEngine.findClient(id),
       () => this.localEngine.findClient(id)
     );
@@ -89,16 +47,14 @@ export class DataServiceFallbackWrapper extends DataService {
     id: string,
     updates: Partial<Pick<Client, 'name' | 'email' | 'company'>>
   ): Promise<Client> {
-    return this.executeWithFallback(
-      'updateClient',
+    return this.executeInSelectedStorage(
       () => this.cloudEngine.updateClient(id, updates),
       () => this.localEngine.updateClient(id, updates)
     );
   }
 
   async deleteClient(id: string): Promise<void> {
-    return this.executeWithFallback(
-      'deleteClient',
+    return this.executeInSelectedStorage(
       () => this.cloudEngine.deleteClient(id),
       () => this.localEngine.deleteClient(id)
     );
@@ -116,16 +72,14 @@ export class DataServiceFallbackWrapper extends DataService {
   }
 
   async uploadDocument(clientId: string, file: File): Promise<DocumentMetadata> {
-    return this.executeWithFallback(
-      'uploadDocument',
+    return this.executeInSelectedStorage(
       () => this.cloudEngine.uploadDocument(clientId, file),
       () => this.localEngine.uploadDocument(clientId, file)
     );
   }
 
   async searchRecords(query: SearchQuery): Promise<SearchResult<Client>> {
-    return this.executeWithFallback(
-      'searchRecords',
+    return this.executeInSelectedStorage(
       () => this.cloudEngine.searchRecords(query),
       () => this.localEngine.searchRecords(query)
     );

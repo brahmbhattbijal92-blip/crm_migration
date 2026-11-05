@@ -58,7 +58,17 @@ export async function executeTenantQuery<T>(
 
   try {
     await client.query('BEGIN');
-    
+
+    const roleResult = await client.query<{ rolsuper: boolean; rolbypassrls: boolean }>(
+      `SELECT rolsuper, rolbypassrls
+       FROM pg_catalog.pg_roles
+       WHERE rolname = current_user`
+    );
+    const databaseRole = roleResult.rows[0];
+    if (!databaseRole || databaseRole.rolsuper || databaseRole.rolbypassrls) {
+      throw new Error('DATABASE_URL must use a non-superuser PostgreSQL role without BYPASSRLS.');
+    }
+
     // Inject the tenant organization ID context into the session parameters
     await client.query('SELECT set_config($1, $2, true)', [
       'app.current_organization_id',

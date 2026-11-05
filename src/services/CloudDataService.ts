@@ -4,9 +4,10 @@ import { DataServiceError } from '../errors/DataErrors';
 import { getSupabaseClient } from '../lib/supabase';
 
 const CLIENT_TABLE = 'clients';
-const DOCUMENT_TABLE = 'client_documents';
+const DOCUMENT_TABLE = 'documents';
 const STORAGE_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET || 'client-documents';
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
+const CLIENT_COLUMNS = 'id, first_name, last_name, email, company, created_at, updated_at';
 
 type ClientRow = Record<string, unknown>;
 
@@ -46,17 +47,38 @@ function safeFileName(fileName: string): string {
   return fileName.replace(/[\\/\0]/g, '_').replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
+async function getActiveOrganizationId(supabase: ReturnType<typeof getSupabaseClient>): Promise<string> {
+  const { data: userResult, error: userError } = await supabase.auth.getUser();
+  if (userError || !userResult.user) {
+    throw new DataServiceError('Sign in before using Cloud storage.', 'CLOUD_AUTH_REQUIRED', 'WARNING', userError);
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('default_organization_id')
+    .eq('user_id', userResult.user.id)
+    .single();
+  if (profileError) throwSupabaseError(profileError, 'organization lookup');
+  if (!profile?.default_organization_id) {
+    throw new DataServiceError('Join an organization before using Cloud storage.', 'CLOUD_ORGANIZATION_REQUIRED', 'WARNING');
+  }
+
+  return String(profile.default_organization_id);
+}
+
 export class CloudDataService extends DataService {
   async saveClient(client: Omit<Client, 'updatedAt'>): Promise<Client> {
-    const { data, error } = await getSupabaseClient()
+    const supabase = getSupabaseClient();
+    const organizationId = await getActiveOrganizationId(supabase);
+    const { data, error } = await supabase
       .from(CLIENT_TABLE)
-      .upsert({
-        id: client.id,
+      .insert({
+        organization_id: organizationId,
         ...splitName(client.name),
         email: client.email,
         ...(client.company === undefined ? {} : { company: client.company }),
-      }, { onConflict: 'id' })
-      .select('*')
+      })
+      .select(CLIENT_COLUMNS)
       .single();
 
     if (error) throwSupabaseError(error, 'client save');
@@ -80,7 +102,7 @@ export class CloudDataService extends DataService {
       .update(changes)
       .eq('id', id)
       .is('deleted_at', null)
-      .select('*')
+      .select(CLIENT_COLUMNS)
       .single();
 
     if (error) throwSupabaseError(error, 'client update');
@@ -90,7 +112,7 @@ export class CloudDataService extends DataService {
   async findClient(id: string): Promise<Client | null> {
     const { data, error } = await getSupabaseClient()
       .from(CLIENT_TABLE)
-      .select('*')
+      .select(CLIENT_COLUMNS)
       .eq('id', id)
       .is('deleted_at', null)
       .maybeSingle();
@@ -100,18 +122,11 @@ export class CloudDataService extends DataService {
   }
 
   async deleteClient(id: string): Promise<void> {
-    const { data, error } = await getSupabaseClient()
-      .from(CLIENT_TABLE)
-      .update({ deleted_at: new Date().toISOString() })
-      .eq('id', id)
-      .is('deleted_at', null)
-      .select('id')
-      .single();
+    const { error } = await getSupabaseClient().rpc('archive_client', {
+      requested_client_id: id,
+    });
 
     if (error) throwSupabaseError(error, 'client soft-delete');
-    if (!data) {
-      throw new DataServiceError(`Client ${id} was not found.`, 'CLIENT_NOT_FOUND', 'WARNING');
-    }
   }
 
   async selectDocumentDirectory(): Promise<string | null> {
@@ -124,7 +139,8 @@ export class CloudDataService extends DataService {
 
   async uploadDocument(clientId: string, file: File): Promise<DocumentMetadata> {
     const supabase = getSupabaseClient();
-    const objectPath = `${safeFileName(clientId)}/${crypto.randomUUID()}-${safeFileName(file.name)}`;
+    const organizationId = await getActiveOrganizationId(supabase);
+    const objectPath = `${organizationId}/${safeFileName(clientId)}/${crypto.randomUUID()}-${safeFileName(file.name)}`;
     const bucket = supabase.storage.from(STORAGE_BUCKET);
     const { error: uploadError } = await bucket.upload(objectPath, file, {
       contentType: file.type || 'application/octet-stream',
@@ -143,13 +159,14 @@ export class CloudDataService extends DataService {
       const { data, error } = await supabase
         .from(DOCUMENT_TABLE)
         .insert({
+          organization_id: organizationId,
           client_id: clientId,
           file_name: file.name,
           file_size: file.size,
           mime_type: file.type || 'application/octet-stream',
           storage_path: objectPath,
         })
-        .select('*')
+        .select('id, client_id, file_name, file_size, mime_type, created_at')
         .single();
       if (error) throwSupabaseError(error, 'document metadata save');
 
@@ -160,7 +177,7 @@ export class CloudDataService extends DataService {
         fileSize: Number(data.file_size),
         mimeType: String(data.mime_type),
         storageUrl: signedUrl.signedUrl,
-        uploadedAt: String(data.uploaded_at ?? new Date().toISOString()),
+        uploadedAt: String(data.created_at ?? new Date().toISOString()),
       };
     } catch (error) {
       const { error: cleanupError } = await bucket.remove([objectPath]);
@@ -175,7 +192,7 @@ export class CloudDataService extends DataService {
     const term = query.term.trim();
     let request = getSupabaseClient()
       .from(CLIENT_TABLE)
-      .select('*', { count: 'exact' })
+      .select(CLIENT_COLUMNS, { count: 'exact' })
       .is('deleted_at', null)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);

@@ -21,17 +21,20 @@ function createQuery(result: SupabaseResult) {
   const resultPromise = Promise.resolve(result);
   const query = {
     select: vi.fn(),
+    insert: vi.fn(),
     is: vi.fn(),
     order: vi.fn(),
     range: vi.fn(),
     or: vi.fn(),
     eq: vi.fn(),
     maybeSingle: vi.fn(),
+    single: vi.fn(),
     then: resultPromise.then.bind(resultPromise),
   };
 
   for (const method of [
     query.select,
+    query.insert,
     query.is,
     query.order,
     query.range,
@@ -41,6 +44,7 @@ function createQuery(result: SupabaseResult) {
   ]) {
     method.mockReturnValue(query);
   }
+  query.single.mockReturnValue(resultPromise);
 
   return query;
 }
@@ -84,8 +88,64 @@ describe('CloudDataService fetch operations', () => {
       totalCount: 1,
     });
     expect(from).toHaveBeenCalledWith('clients');
+    expect(query.select).toHaveBeenCalledWith(
+      'id, first_name, last_name, email, company, created_at, updated_at',
+      { count: 'exact' }
+    );
     expect(query.is).toHaveBeenCalledWith('deleted_at', null);
     expect(query.range).toHaveBeenCalledWith(0, 24);
+  });
+
+  it('uploads documents under the tenant/client path and saves metadata to documents', async () => {
+    const organizationId = 'c5a1970a-cf77-448a-8e15-88f0d7b6a355';
+    const clientId = '9ba6bd8b-f238-4efb-9200-7405eebfd6c7';
+    const profileQuery = createQuery({
+      data: { default_organization_id: organizationId },
+      error: null,
+    });
+    const documentQuery = createQuery({
+      data: {
+        id: 'document-1',
+        client_id: clientId,
+        file_name: 'passport.pdf',
+        file_size: 10,
+        mime_type: 'application/pdf',
+        created_at: '2026-11-05T12:00:00.000Z',
+      },
+      error: null,
+    });
+    const upload = vi.fn().mockResolvedValue({ error: null });
+    const createSignedUrl = vi.fn().mockResolvedValue({
+      data: { signedUrl: 'https://storage.example/signed' },
+      error: null,
+    });
+    const supabase = {
+      auth: {
+        getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null }),
+      },
+      from: vi.fn((table: string) => table === 'profiles' ? profileQuery : documentQuery),
+      storage: { from: vi.fn(() => ({ upload, createSignedUrl, remove: vi.fn() })) },
+    };
+    getSupabaseClientMock.mockReturnValue(supabase);
+
+    const result = await service.uploadDocument(
+      clientId,
+      { name: 'passport.pdf', type: 'application/pdf', size: 10 } as File
+    );
+
+    const [objectPath] = upload.mock.calls[0] as [string];
+    expect(objectPath).toMatch(new RegExp(`^${organizationId}/${clientId}/[0-9a-f-]+-passport\\.pdf$`));
+    expect(supabase.from).toHaveBeenCalledWith('documents');
+    expect(documentQuery.insert).toHaveBeenCalledWith(expect.objectContaining({
+      organization_id: organizationId,
+      client_id: clientId,
+      storage_path: objectPath,
+    }));
+    expect(result).toMatchObject({
+      id: 'document-1',
+      clientId,
+      uploadedAt: '2026-11-05T12:00:00.000Z',
+    });
   });
 
   it('returns an empty result when the search has no rows or count', async () => {

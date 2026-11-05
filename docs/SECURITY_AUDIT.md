@@ -26,13 +26,11 @@ The UI now records payments through a transaction that adds a payment row, decre
 
 **Remaining action:** Add a separately authorized void/reversal workflow before allowing invoices to be voided. Test concurrent payment and purge calls in staging.
 
-### High: Direct PostgreSQL access is safe only with a non-bypass role
+### Addressed in source: Direct PostgreSQL access requires a non-bypass role
 
-`executeTenantQuery` sets `app.current_organization_id` from the server-validated organization inside a transaction. The RLS helper returns this setting when `auth.uid()` is null, as it is for a direct PostgreSQL connection. `getClients` also queries clients without an explicit organization predicate and relies on RLS. `FORCE ROW LEVEL SECURITY` does not constrain superusers or roles with `BYPASSRLS`.
+`executeTenantQuery` sets `app.current_organization_id` from the server-validated organization inside a transaction. Current server queries also use explicit organization predicates. The helper now rejects direct PostgreSQL connections whose effective role is a superuser or has `BYPASSRLS`; `FORCE ROW LEVEL SECURITY` does not constrain either.
 
-**Impact:** If `DATABASE_URL` uses a Supabase owner, superuser, or other bypass role, raw server-action queries may read or mutate across tenants despite the transaction setting.
-
-**Recommendation:** Use a dedicated least-privilege database role with `NOBYPASSRLS`, never the `postgres` owner for application queries. Verify the deployed role's `rolsuper` and `rolbypassrls` flags. Add explicit `organization_id` predicates to server SQL as defense in depth and test cross-tenant access with the actual production role.
+**Remaining action:** Use a dedicated least-privilege database role with `NOBYPASSRLS`, never the `postgres` owner for application queries. Verify the deployed role flags and test cross-tenant access with the actual production role. The runtime check must be exercised against the deployed connection role.
 
 ### Addressed in source: Purge lock and document-write race
 
@@ -46,17 +44,15 @@ Direct authenticated client updates no longer include status, archive timestamp,
 
 **Remaining action:** Validate function ownership and execution against RLS in the live project. Add an immutable archive event log if regulatory auditability is required.
 
-### Medium: Notification rows allow broader edits than the UI needs
+### Resolved in source: Cloud failures could write to Local storage
 
-The notification UPDATE policy restricts which recipient can update a row, but the table grant is for all columns. A recipient can potentially alter fields beyond `read_at`, including message or delivery metadata, while keeping the row assigned to themselves and inside the same organization.
+Cloud operations previously fell back to Local storage after any error, including authorization and schema failures. This could report a successful operation while leaving its data in a different storage domain than the user selected. Cloud failures now propagate; Local storage is used only when Local is explicitly selected.
 
-**Recommendation:** Grant UPDATE only on `read_at`, and use a `WITH CHECK` policy that preserves immutable notification fields.
+The Cloud data service now uses explicit client-column projections, supplies the active organization on inserts, archives through the guarded RPC, and writes document metadata to `public.documents`. Storage object paths use `<organization-id>/<client-id>/...`, matching the storage RLS policies. Regression tests cover Cloud-to-Local isolation and the tenant-scoped upload path.
 
-### Medium: Organization and profile UPDATE grants are broader than necessary
+### Verified in source: Narrow notification and organization privileges
 
-Authenticated users receive table-wide UPDATE on their own profile, including `default_organization_id`; organization admins receive table-wide UPDATE on their organization row. Membership checks prevent an arbitrary default organization from granting access by themselves, but these grants still allow unnecessary changes and can break a user's active organization selection.
-
-**Recommendation:** Grant only the columns required by each UI operation. Validate that a new default organization is an existing membership. Limit organization updates to approved fields such as `name`.
+The current schema grants notification updates only on `read_at`, grants profiles SELECT only, and restricts organization updates to `name`. It also drops the direct grant-ledger INSERT policy; grant writes use the authorized RPC. These source definitions still need to be verified in the deployed database.
 
 ### Medium: Local records are not a durable or device-protected backup
 
@@ -68,12 +64,12 @@ Local records are stored in browser storage, scoped by signed-in user. They are 
 
 The schema includes RLS enablement and tenant policies for `organizations`, `profiles`, `organization_memberships`, `clients`, `documents`, `credentials_vault`, `financial_invoices`, `financial_invoice_payments`, `grants_ledger`, `client_grant_balances`, and `governance_notifications`. The `client-documents` bucket is private and has organization/client path policies on `storage.objects`.
 
-No intentional anon read policy for application rows was found in the schema. However, the grant ledger still has an INSERT policy even though direct INSERT is revoked from `authenticated`; remove the stale policy to make the intended RPC-only write path clearer. Confirm effective privileges in the deployed database because SQL privileges can differ from this file.
+No intentional anon read policy for application rows was found in the schema. Direct authenticated grant-ledger INSERT is revoked and its INSERT policy is dropped, leaving the authorized RPC as the intended write path. Confirm effective privileges in the deployed database because SQL privileges can differ from this file.
 
 ## Scaling and Architecture Limits
 
 - **Database connection growth:** `src/lib/db.ts` caps each Node.js process at 5 PostgreSQL connections by default (`DB_POOL_MAX` can tune this from 1 to 20), with connection-acquisition and idle timeouts. Serverless instance multiplication can still exhaust PostgreSQL connections; use Supabase's appropriate pooler and size the per-process cap against the deployment's maximum instance count.
-- **Unbounded reads:** Several dashboard services load all clients, invoices, grants, and documents into the browser. Supabase/PostgREST row limits and browser memory become practical limits. Add pagination, server-side filtering, and summary queries before tenant datasets grow.
+- **Remaining unbounded reads:** Archived-client and data-lifecycle screens still request full lists, and Local Mode reads IndexedDB rows before slicing pages. Supabase/PostgREST and browser-memory limits remain practical constraints for those workflows.
 - **Single active organization:** A profile has one `default_organization_id`. Memberships support more than one organization, but there is no organization switcher or explicit active-organization session model.
 - **Financial hot rows:** Grant allocation and invoice settlement lock the client row to prevent double spending. This is correct for consistency, but a client with many simultaneous transactions becomes a serialization point.
 - **Growing ledgers and storage:** Grant, invoice, notification, and object-storage records accumulate. Define retention, archival, object cleanup, and operational monitoring before high volume; partition only after measured growth warrants it.

@@ -52,7 +52,8 @@ The dashboard uses explicit client-column projections. The new migration replace
 ### Other boundaries to retain
 
 - RLS is enabled and forced in the schema, but source SQL does not prove that the deployed project has the latest migrations or effective grants. Verify policies and privileges in staging and production.
-- Server actions use `DATABASE_URL`; verify its database role is not a superuser and does not have `BYPASSRLS`. `FORCE ROW LEVEL SECURITY` does not constrain superusers or bypass roles. Keep explicit organization predicates in server SQL as defense in depth.
+- Server actions use `DATABASE_URL`; each direct PostgreSQL transaction now rejects a superuser or `BYPASSRLS` role, and current server queries include explicit organization predicates. `FORCE ROW LEVEL SECURITY` does not constrain privileged roles; configure and verify a dedicated least-privilege database role in staging and production.
+- Cloud operations now stay in the selected Cloud domain when requests fail; they do not silently write to Local storage. Cloud client reads use explicit permitted columns, and document uploads use organization/client-scoped storage paths and the `documents` metadata table.
 - The dashboard intentionally sends client PII (including email and passport/visa expiry fields) to authenticated tenant users because its UI uses those fields. Recheck each role's need-to-know access and minimize columns for screens that do not need them.
 - Local mode stores records in browser storage and is not an encrypted, durable backup. Shared-device access and browser-data loss remain risks; use the documented backup limitations when deciding whether it is appropriate for regulated records.
 - Storage paths and identifiers are not signed download URLs, but access to document bytes must continue to be enforced by the private bucket's storage policies.
