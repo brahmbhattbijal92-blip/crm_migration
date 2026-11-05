@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import CredentialVault from '../../src/components/CredentialVault';
 import AuthStatus from '../../src/components/AuthStatus';
@@ -136,6 +136,9 @@ function DashboardContent() {
   const [purgeReferenceTime, setPurgeReferenceTime] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [documentSuccessMessage, setDocumentSuccessMessage] = useState('');
+  const [errorFocusVersion, setErrorFocusVersion] = useState(0);
+  const errorAlertRef = useRef<HTMLDivElement>(null);
 
   const visibleClients = showArchivedClients ? archivedClients : clients;
   const selectedClient = [...clients, ...archivedClients].find((client) => client.id === selectedClientId) ?? null;
@@ -146,6 +149,15 @@ function DashboardContent() {
     const timer = window.setTimeout(() => setPurgeReferenceTime(Date.now()), 0);
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (!errorMessage || !errorAlertRef.current) return;
+    const frameId = window.requestAnimationFrame(() => {
+      errorAlertRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      errorAlertRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [errorMessage, errorFocusVersion]);
 
   function handleStoragePreferenceChange(nextPreference: StoragePreference) {
     if (nextPreference === preference) return;
@@ -431,15 +443,17 @@ function DashboardContent() {
     setIsStagingDocument(true);
     setErrorMessage('');
     setSuccessMessage('');
+    setDocumentSuccessMessage('');
     try {
       const staged = await dataService.stageDocument(selectedClientId, selectedFile);
       setDocuments((current) => [staged, ...current].slice(0, DASHBOARD_PAGE_SIZE));
       if (documents.length >= DASHBOARD_PAGE_SIZE) setDocumentHasMore(true);
       setSelectedFile(null);
       event.currentTarget.reset();
-      setSuccessMessage(`${staged.fileName} staged successfully.`);
+      setDocumentSuccessMessage(`${staged.fileName} staged successfully.`);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Document could not be staged.');
+      setErrorFocusVersion((version) => version + 1);
     } finally {
       setIsStagingDocument(false);
     }
@@ -654,7 +668,7 @@ function DashboardContent() {
       <div className="mx-auto max-w-[1500px] space-y-6">
 
         {errorMessage && (
-          <div role="alert" className="border border-rose-900 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">
+          <div ref={errorAlertRef} role="alert" tabIndex={-1} className="border border-rose-900 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">
             {errorMessage}
           </div>
         )}
@@ -797,6 +811,9 @@ function DashboardContent() {
                       className="block w-full text-sm text-zinc-400 file:mr-3 file:border-0 file:bg-zinc-800 file:px-3 file:py-2 file:text-xs file:text-zinc-200"
                     />
                   </label>
+                  {documentSuccessMessage && (
+                    <p role="status" className="text-sm text-emerald-300 sm:col-span-2">{documentSuccessMessage}</p>
+                  )}
                   <button
                     type="submit"
                     disabled={!selectedClientId || selectedClient?.status === 'archived' || !selectedFile || isStagingDocument}
