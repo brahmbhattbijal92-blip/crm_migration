@@ -439,6 +439,7 @@ function DashboardContent() {
 
   async function handleStageDocument(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     if (!selectedClientId || selectedClient?.status === 'archived' || !selectedFile) return;
     setIsStagingDocument(true);
     setErrorMessage('');
@@ -449,7 +450,7 @@ function DashboardContent() {
       setDocuments((current) => [staged, ...current].slice(0, DASHBOARD_PAGE_SIZE));
       if (documents.length >= DASHBOARD_PAGE_SIZE) setDocumentHasMore(true);
       setSelectedFile(null);
-      event.currentTarget.reset();
+      formElement.reset();
       setDocumentSuccessMessage(`${staged.fileName} staged successfully.`);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Document could not be staged.');
