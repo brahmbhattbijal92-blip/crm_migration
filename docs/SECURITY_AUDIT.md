@@ -24,7 +24,11 @@ The team actions do check for an owner/admin, and purge RPCs require an admin, b
 
 The UI now records payments through a transaction that adds a payment row, decreases `amount_due`, and marks the invoice paid only at zero. Direct invoice writes are revoked from authenticated users. The payment ledger is append-only through the public API.
 
-**Remaining action:** Add a separately authorized void/reversal workflow before allowing invoices to be voided. Test concurrent payment and purge calls in staging.
+### Resolved in source: Invoice voids and payment reversals
+
+The invoice-reversal migration adds linked negative payment rows without editing prior transactions, enforces one full reversal per original payment, and locks client/invoice rows in the same order as payment receipt. `void_invoice` is owner/admin-only, reverses unreversed payments, restores grant funds with an appended grant-ledger credit, and sets the invoice balance to zero. The server actions validate inputs and invoke the authenticated RPCs.
+
+**Remaining action:** Apply the migration and test the role matrix, concurrent payment/reversal/void calls, and grant restoration in staging. Partial payment refunds are not implemented; reversals currently reverse an entire payment.
 
 ### Addressed in source: Direct PostgreSQL access requires a non-bypass role
 

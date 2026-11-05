@@ -361,3 +361,41 @@ export async function getDecryptedCredential(
     ),
   };
 }
+
+export async function voidInvoice(invoiceId: string, reason: string) {
+  if (typeof invoiceId !== 'string' || !UUID_PATTERN.test(invoiceId)) {
+    throw new Error('A valid invoice is required.');
+  }
+  if (typeof reason !== 'string') throw new Error('Enter a void reason of 1 to 500 characters.');
+  const normalizedReason = reason.trim();
+  if (!normalizedReason || normalizedReason.length > 500) {
+    throw new Error('Enter a void reason of 1 to 500 characters.');
+  }
+
+  const { supabase } = await requireOrganizationContext({ adminOnly: true });
+  const { data, error } = await supabase.rpc('void_invoice', {
+    requested_invoice_id: invoiceId,
+    requested_reason: normalizedReason,
+  });
+  if (error) throw new Error(error.message || 'Invoice void failed.');
+  return data;
+}
+
+export async function reverseInvoicePayment(paymentId: string, reason: string) {
+  if (typeof paymentId !== 'string' || !UUID_PATTERN.test(paymentId)) {
+    throw new Error('A valid payment is required.');
+  }
+  if (typeof reason !== 'string') throw new Error('Enter a reversal reason of 1 to 500 characters.');
+  const normalizedReason = reason.trim();
+  if (!normalizedReason || normalizedReason.length > 500) {
+    throw new Error('Enter a reversal reason of 1 to 500 characters.');
+  }
+
+  const { supabase } = await requireOrganizationContext({ adminOnly: true });
+  const { data, error } = await supabase.rpc('reverse_invoice_payment', {
+    requested_payment_id: paymentId,
+    requested_reason: normalizedReason,
+  });
+  if (error) throw new Error(error.message || 'Payment reversal failed.');
+  return data;
+}
