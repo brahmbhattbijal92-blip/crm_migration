@@ -79,7 +79,8 @@ const ArchivedClientRow = React.memo(function ArchivedClientRow({
 function ArchivedClientsContent() {
   const { dataService, preference } = useDashboardStorage();
   const [clients, setClients] = useState<ClientRecord[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [loadedDataService, setLoadedDataService] = useState<typeof dataService | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [restoringId, setRestoringId] = useState<string | null>(null);
@@ -89,18 +90,26 @@ function ArchivedClientsContent() {
   const [isPurging, setIsPurging] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [purgeReferenceTime, setPurgeReferenceTime] = useState<number | null>(null);
+  const isLoading = loadedDataService !== dataService || isRefreshing;
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setPurgeReferenceTime(Date.now()), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   async function refreshArchivedClients() {
-    setIsLoading(true);
+    setIsRefreshing(true);
     setErrorMessage('');
     try {
       const page = await dataService.listClientPage(true, 0, CLIENT_PAGE_SIZE);
       setClients(page.items);
       setHasMore(page.hasMore);
+      setPurgeReferenceTime(Date.now());
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Archived clients could not be loaded.');
     } finally {
-      setIsLoading(false);
+      setIsRefreshing(false);
     }
   }
 
@@ -124,19 +133,20 @@ function ArchivedClientsContent() {
 
   useEffect(() => {
     let active = true;
-    setIsLoading(true);
     dataService.listClientPage(true, 0, CLIENT_PAGE_SIZE)
       .then((page) => {
         if (active) {
           setClients(page.items);
           setHasMore(page.hasMore);
+          setPurgeReferenceTime(Date.now());
+          setLoadedDataService(dataService);
         }
       })
       .catch((error: unknown) => {
-        if (active) setErrorMessage(error instanceof Error ? error.message : 'Archived clients could not be loaded.');
-      })
-      .finally(() => {
-        if (active) setIsLoading(false);
+        if (active) {
+          setErrorMessage(error instanceof Error ? error.message : 'Archived clients could not be loaded.');
+          setLoadedDataService(dataService);
+        }
       });
     return () => { active = false; };
   }, [dataService]);
@@ -259,7 +269,11 @@ function ArchivedClientsContent() {
                   <ArchivedClientRow
                     key={client.id}
                     client={client}
-                    readyToPurge={Boolean(client.purgeEligibleAt && Date.parse(client.purgeEligibleAt) <= Date.now())}
+                    readyToPurge={Boolean(
+                      purgeReferenceTime !== null &&
+                      client.purgeEligibleAt &&
+                      Date.parse(client.purgeEligibleAt) <= purgeReferenceTime
+                    )}
                     restoring={restoringId === client.id}
                     reviewingPurge={reviewingPurgeId === client.id}
                     disabled={Boolean(restoringId || reviewingPurgeId) || isPurging}

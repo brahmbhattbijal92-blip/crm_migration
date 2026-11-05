@@ -15,9 +15,10 @@ export default function TeamPage() {
   const [successMessage, setSuccessMessage] = useState('');
 
   async function refreshMembers() {
-    setErrorMessage('');
     try {
-      setMembers(await listOrganizationMembers());
+      const nextMembers = await listOrganizationMembers();
+      setMembers(nextMembers);
+      setErrorMessage('');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Team members could not be loaded.');
     } finally {
@@ -26,7 +27,21 @@ export default function TeamPage() {
   }
 
   useEffect(() => {
-    void refreshMembers();
+    let active = true;
+    listOrganizationMembers()
+      .then((nextMembers) => {
+        if (!active) return;
+        setMembers(nextMembers);
+        setErrorMessage('');
+      })
+      .catch((error: unknown) => {
+        if (active) setErrorMessage(error instanceof Error ? error.message : 'Team members could not be loaded.');
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
+
+    return () => { active = false; };
   }, []);
 
   async function handleInvite(event: React.FormEvent<HTMLFormElement>) {

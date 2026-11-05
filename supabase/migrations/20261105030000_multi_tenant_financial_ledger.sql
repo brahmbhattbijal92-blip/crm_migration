@@ -110,8 +110,8 @@ CREATE POLICY financial_ledger_insert_tenant ON public.financial_ledger
     AND EXISTS (
       SELECT 1
       FROM public.clients AS clients
-      WHERE clients.id = client_id
-        AND clients.organization_id = organization_id
+      WHERE clients.id = financial_ledger.client_id
+        AND clients.organization_id = financial_ledger.organization_id
     )
   );
 

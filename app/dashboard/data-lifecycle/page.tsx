@@ -72,7 +72,8 @@ function DataLifecycleContent() {
   const [accounts, setAccounts] = useState<ClientRecord[]>([]);
   const [inactiveDays, setInactiveDays] = useState<number>(90);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [isLoading, setIsLoading] = useState(true);
+  const [loadedDataService, setLoadedDataService] = useState<typeof dataService | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasMoreAccounts, setHasMoreAccounts] = useState(false);
   const [isLoadingMoreAccounts, setIsLoadingMoreAccounts] = useState(false);
   const [isReviewingPurge, setIsReviewingPurge] = useState(false);
@@ -84,6 +85,7 @@ function DataLifecycleContent() {
   const [pendingPurgeIds, setPendingPurgeIds] = useState<string[]>([]);
   const [pendingAttachmentCount, setPendingAttachmentCount] = useState(0);
   const [showPurgeConfirmation, setShowPurgeConfirmation] = useState(false);
+  const isLoading = loadedDataService !== dataService || isRefreshing;
 
   const inactiveAccounts = useMemo(
     () => getInactiveAccounts(accounts, inactiveDays, referenceTime),
@@ -93,7 +95,7 @@ function DataLifecycleContent() {
   const selectedCount = inactiveAccounts.reduce((count, account) => count + Number(selectedIds.has(account.id)), 0);
 
   async function loadAccounts() {
-    setIsLoading(true);
+    setIsRefreshing(true);
     setErrorMessage('');
     try {
       const page = await dataService.listClientPage(false, 0, CLIENT_PAGE_SIZE);
@@ -106,7 +108,7 @@ function DataLifecycleContent() {
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Inactive accounts could not be loaded.');
     } finally {
-      setIsLoading(false);
+      setIsRefreshing(false);
     }
   }
 
@@ -130,7 +132,6 @@ function DataLifecycleContent() {
 
   useEffect(() => {
     let active = true;
-    setIsLoading(true);
     dataService.listClientPage(false, 0, CLIENT_PAGE_SIZE)
       .then((page) => {
         if (!active) return;
@@ -141,12 +142,13 @@ function DataLifecycleContent() {
         setReferenceTime(refreshedAt.getTime());
         setLastRefreshed(refreshedAt.toISOString());
         setErrorMessage('');
+        setLoadedDataService(dataService);
       })
       .catch((error: unknown) => {
-        if (active) setErrorMessage(error instanceof Error ? error.message : 'Inactive accounts could not be loaded.');
-      })
-      .finally(() => {
-        if (active) setIsLoading(false);
+        if (active) {
+          setErrorMessage(error instanceof Error ? error.message : 'Inactive accounts could not be loaded.');
+          setLoadedDataService(dataService);
+        }
       });
     return () => { active = false; };
   }, [dataService]);

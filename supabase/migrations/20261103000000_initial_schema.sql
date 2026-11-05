@@ -1139,7 +1139,8 @@ CREATE POLICY documents_insert_tenant ON public.documents
     AND app.can_manage_organization_data(organization_id)
     AND EXISTS (
       SELECT 1 FROM public.clients AS clients
-      WHERE clients.id = client_id AND clients.organization_id = organization_id
+      WHERE clients.id = documents.client_id
+        AND clients.organization_id = documents.organization_id
         AND clients.status <> 'archived' AND clients.deleted_at IS NULL AND clients.purge_locked_at IS NULL
     )
   );
@@ -1152,7 +1153,8 @@ CREATE POLICY documents_update_tenant ON public.documents
     AND app.can_manage_organization_data(organization_id)
     AND EXISTS (
       SELECT 1 FROM public.clients AS clients
-      WHERE clients.id = client_id AND clients.organization_id = organization_id
+      WHERE clients.id = documents.client_id
+        AND clients.organization_id = documents.organization_id
         AND clients.status <> 'archived' AND clients.deleted_at IS NULL AND clients.purge_locked_at IS NULL
     )
   );

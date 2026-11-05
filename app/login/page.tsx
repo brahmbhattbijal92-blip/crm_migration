@@ -13,12 +13,21 @@ export default function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    const error = new URLSearchParams(window.location.search).get('error');
-    if (error === 'configuration') {
-      setErrorMessage('Secure sign-in is unavailable because the authentication service is not configured.');
-    } else if (error === 'confirmation') {
-      setErrorMessage('The confirmation link could not be verified. Request a new email and try again.');
-    }
+    let active = true;
+    const timer = window.setTimeout(() => {
+      if (!active) return;
+      const error = new URLSearchParams(window.location.search).get('error');
+      if (error === 'configuration') {
+        setErrorMessage('Secure sign-in is unavailable because the authentication service is not configured.');
+      } else if (error === 'confirmation') {
+        setErrorMessage('The confirmation link could not be verified. Request a new email and try again.');
+      }
+    }, 0);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
   }, []);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
