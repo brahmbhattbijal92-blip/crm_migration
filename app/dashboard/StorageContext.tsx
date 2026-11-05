@@ -480,9 +480,13 @@ function mapCloudGrant(row: Record<string, unknown>): GrantRecord {
   };
 }
 
+function normalizeCurrencyCode(currency: unknown): string {
+  return String(currency ?? '').trim().toUpperCase();
+}
+
 function normalizeInvoiceInput(input: InvoiceInput): InvoiceInput {
   const invoiceNumber = input.invoiceNumber.trim();
-  const currency = input.currency.trim().toUpperCase();
+  const currency = normalizeCurrencyCode(input.currency);
   if (!input.clientId.trim()) throw new Error('Select a client for this invoice.');
   if (!invoiceNumber || invoiceNumber.length > 80) throw new Error('Invoice number must be 1 to 80 characters.');
   if (!Number.isFinite(input.amount) || input.amount <= 0) throw new Error('Invoice amount must be greater than zero.');
@@ -491,7 +495,7 @@ function normalizeInvoiceInput(input: InvoiceInput): InvoiceInput {
 }
 
 function normalizeGrantInput(input: GrantInput): GrantInput {
-  const currency = input.currency.trim().toUpperCase();
+  const currency = normalizeCurrencyCode(input.currency);
   if (!input.clientId.trim()) throw new Error('Select a client for this grant entry.');
   if (!Number.isFinite(input.amount) || input.amount <= 0) throw new Error('Grant amount must be greater than zero.');
   if (!/^[A-Z]{3}$/.test(currency)) throw new Error('Currency must be a three-letter code, such as USD.');
@@ -748,7 +752,10 @@ class IndexedDbDataService implements IDataService {
         }
 
         const balance = grantEntries.reduce((total, entry) => {
-          if (String(entry.clientId ?? entry.client_id) !== invoiceInput.clientId || String(entry.currency).toUpperCase() !== invoiceInput.currency) return total;
+          if (
+            String(entry.clientId ?? entry.client_id) !== invoiceInput.clientId ||
+            normalizeCurrencyCode(entry.currency) !== normalizeCurrencyCode(invoiceInput.currency)
+          ) return total;
           const amount = Number(entry.amount ?? 0);
           if (entry.entryType === 'debit' || entry.entry_type === 'debit') return total - amount;
           return total + amount;
@@ -863,8 +870,9 @@ class IndexedDbDataService implements IDataService {
     const balances = new Map<string, GrantBalance>();
     for (const grant of grants) {
       if (clientId && grant.clientId !== clientId) continue;
-      const key = `${grant.clientId}:${grant.currency}`;
-      const balance = balances.get(key) ?? { clientId: grant.clientId, currency: grant.currency, availableBalance: 0 };
+      const currency = normalizeCurrencyCode(grant.currency);
+      const key = `${grant.clientId}:${currency}`;
+      const balance = balances.get(key) ?? { clientId: grant.clientId, currency, availableBalance: 0 };
       balance.availableBalance += grant.entryType === 'debit' ? -grant.amount : grant.amount;
       balances.set(key, balance);
     }

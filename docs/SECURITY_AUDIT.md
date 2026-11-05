@@ -40,6 +40,8 @@ The invoice-reversal migration adds linked negative payment rows without editing
 
 The schema now serializes document metadata writes against client row locks, rejects document metadata for archived/deleted/purge-locked clients, and validates both organization and client in the storage path. Storage writes require an editable role; object deletion is admin-only. The Cloud upload flow removes the uploaded object if metadata creation fails.
 
+The latest purge migration repeats the archived status and 90-day checks at claim and finalization, and blocks deletion unless every selected client's net `amount_due` is exactly zero independently for each currency. The finalizer retains the existing tenant/admin checks and deletes through the client row so dependent ledger records follow their declared foreign-key cascades.
+
 **Remaining action:** The storage object and SQL metadata operations are still separate systems. Add a durable purge job with retries and orphan-object reconciliation before handling large numbers of documents.
 
 ### Addressed in source: Archive timestamp tampering

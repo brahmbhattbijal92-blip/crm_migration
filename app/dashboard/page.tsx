@@ -138,7 +138,7 @@ function DashboardContent() {
   const [successMessage, setSuccessMessage] = useState('');
 
   const visibleClients = showArchivedClients ? archivedClients : clients;
-  const selectedClient = visibleClients.find((client) => client.id === selectedClientId) ?? null;
+  const selectedClient = [...clients, ...archivedClients].find((client) => client.id === selectedClientId) ?? null;
   const selectedClientDataKey = selectedClientId ? `${preference}:${selectedClientId}` : '';
   const selectedClientDataReady = Boolean(selectedClientDataKey) && loadedClientDataKey === selectedClientDataKey;
 
@@ -173,15 +173,17 @@ function DashboardContent() {
         setClientHasMore(clientPage.hasMore);
         setArchivedClientHasMore(archivedPage.hasMore);
         setNotifications(notificationRows);
-        const visibleRows = showArchivedClients ? archivedPage.items : clientPage.items;
-        setSelectedClientId((current) => visibleRows.some((client) => client.id === current) ? current : (visibleRows[0]?.id ?? ''));
+        const loadedRows = [...clientPage.items, ...archivedPage.items];
+        setSelectedClientId((current) => current && loadedRows.some((client) => client.id === current)
+          ? current
+          : (clientPage.items[0]?.id ?? archivedPage.items[0]?.id ?? ''));
       } catch (error) {
         if (active) setErrorMessage(error instanceof Error ? error.message : 'Dashboard data could not be loaded.');
       }
     }
     void loadDashboard();
     return () => { active = false; };
-  }, [dataService, showArchivedClients]);
+  }, [dataService]);
 
   useEffect(() => {
     let active = true;
@@ -229,8 +231,10 @@ function DashboardContent() {
       setClientHasMore(clientPage.hasMore);
       setArchivedClientHasMore(archivedPage.hasMore);
       setNotifications(notificationRows);
-      const visibleRows = showArchivedClients ? archivedPage.items : clientPage.items;
-      setSelectedClientId((current) => visibleRows.some((client) => client.id === current) ? current : (visibleRows[0]?.id ?? ''));
+      const loadedRows = [...clientPage.items, ...archivedPage.items];
+      setSelectedClientId((current) => current && loadedRows.some((client) => client.id === current)
+        ? current
+        : (clientPage.items[0]?.id ?? archivedPage.items[0]?.id ?? ''));
       setSelectedClientDataVersion((version) => version + 1);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Dashboard data could not be refreshed.');
@@ -597,7 +601,7 @@ function DashboardContent() {
           onSelect={(clientId) => { setSelectedClientId(clientId); resetForm(); }}
           onNewClient={handleNewClient}
           showArchived={showArchivedClients}
-          onToggleArchived={() => { setShowArchivedClients((current) => !current); setSelectedClientId(''); resetForm(); }}
+          onToggleArchived={() => { setShowArchivedClients((current) => !current); resetForm(); }}
           hasMoreClients={showArchivedClients ? archivedClientHasMore : clientHasMore}
           isLoadingMore={loadingMore === 'clients'}
           onLoadMore={() => void loadMoreClients()}
