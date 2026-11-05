@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ARCHIVE_RETENTION_DAYS,
   DashboardStorageProvider,
@@ -9,15 +9,79 @@ import {
   type ClientRecord,
 } from '../StorageContext';
 
+const CLIENT_PAGE_SIZE = 50;
+
 function formatDate(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? 'Unknown' : date.toLocaleString();
 }
 
+interface ArchivedClientRowProps {
+  client: ClientRecord;
+  readyToPurge: boolean;
+  restoring: boolean;
+  reviewingPurge: boolean;
+  disabled: boolean;
+  onRestore(client: ClientRecord): void;
+  onReviewPurge(client: ClientRecord): void;
+}
+
+const ArchivedClientRow = React.memo(function ArchivedClientRow({
+  client,
+  readyToPurge,
+  restoring,
+  reviewingPurge,
+  disabled,
+  onRestore,
+  onReviewPurge,
+}: ArchivedClientRowProps) {
+  return (
+    <tr>
+      <td className="px-4 py-3">
+        <span className="block font-medium text-zinc-200">{client.firstName} {client.lastName}</span>
+        <span className="mt-0.5 block text-xs text-zinc-500">{client.email}</span>
+      </td>
+      <td className="px-4 py-3 text-zinc-400">{client.company || '—'}</td>
+      <td className="px-4 py-3 text-xs text-zinc-400">{formatDate(client.archivedAt ?? client.updatedAt)}</td>
+      <td className="px-4 py-3 text-xs">
+        {readyToPurge ? (
+          <span className="text-emerald-300">Ready to purge</span>
+        ) : (
+          <span className="text-zinc-500">Available {formatDate(client.purgeEligibleAt ?? client.updatedAt)} ({ARCHIVE_RETENTION_DAYS} days)</span>
+        )}
+      </td>
+      <td className="px-4 py-3 text-right">
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            aria-label={`Restore ${client.firstName} ${client.lastName}`}
+            disabled={disabled}
+            onClick={() => onRestore(client)}
+            className="border border-emerald-800 px-3 py-2 text-sm text-emerald-200 hover:bg-emerald-950/50 disabled:opacity-50"
+          >
+            {restoring ? 'Restoring...' : 'Restore'}
+          </button>
+          <button
+            type="button"
+            aria-label={`Permanently purge ${client.firstName} ${client.lastName}`}
+            disabled={!readyToPurge || disabled}
+            onClick={() => onReviewPurge(client)}
+            className="border border-rose-800 px-3 py-2 text-sm text-rose-200 hover:bg-rose-950/50 disabled:opacity-50"
+          >
+            {reviewingPurge ? 'Checking...' : 'Permanently purge'}
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+});
+
 function ArchivedClientsContent() {
   const { dataService, preference } = useDashboardStorage();
   const [clients, setClients] = useState<ClientRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [reviewingPurgeId, setReviewingPurgeId] = useState<string | null>(null);
   const [pendingPurgeClient, setPendingPurgeClient] = useState<ClientRecord | null>(null);
@@ -30,7 +94,9 @@ function ArchivedClientsContent() {
     setIsLoading(true);
     setErrorMessage('');
     try {
-      setClients(await dataService.listArchivedClients());
+      const page = await dataService.listClientPage(true, 0, CLIENT_PAGE_SIZE);
+      setClients(page.items);
+      setHasMore(page.hasMore);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Archived clients could not be loaded.');
     } finally {
@@ -38,12 +104,33 @@ function ArchivedClientsContent() {
     }
   }
 
+  async function loadMoreArchivedClients() {
+    if (!hasMore || isLoading || isLoadingMore || restoringId || reviewingPurgeId || isPurging) return;
+    setIsLoadingMore(true);
+    setErrorMessage('');
+    try {
+      const page = await dataService.listClientPage(true, clients.length, CLIENT_PAGE_SIZE);
+      setClients((current) => {
+        const existingIds = new Set(current.map((client) => client.id));
+        return [...current, ...page.items.filter((client) => !existingIds.has(client.id))];
+      });
+      setHasMore(page.hasMore);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'More archived clients could not be loaded.');
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }
+
   useEffect(() => {
     let active = true;
     setIsLoading(true);
-    dataService.listArchivedClients()
-      .then((archivedClients) => {
-        if (active) setClients(archivedClients);
+    dataService.listClientPage(true, 0, CLIENT_PAGE_SIZE)
+      .then((page) => {
+        if (active) {
+          setClients(page.items);
+          setHasMore(page.hasMore);
+        }
       })
       .catch((error: unknown) => {
         if (active) setErrorMessage(error instanceof Error ? error.message : 'Archived clients could not be loaded.');
@@ -54,7 +141,7 @@ function ArchivedClientsContent() {
     return () => { active = false; };
   }, [dataService]);
 
-  async function restoreClient(client: ClientRecord) {
+  const restoreClient = useCallback(async (client: ClientRecord) => {
     setRestoringId(client.id);
     setErrorMessage('');
     setSuccessMessage('');
@@ -67,9 +154,9 @@ function ArchivedClientsContent() {
     } finally {
       setRestoringId(null);
     }
-  }
+  }, [dataService]);
 
-  async function reviewPurge(client: ClientRecord) {
+  const reviewPurge = useCallback(async (client: ClientRecord) => {
     setReviewingPurgeId(client.id);
     setErrorMessage('');
     setSuccessMessage('');
@@ -90,7 +177,7 @@ function ArchivedClientsContent() {
     } finally {
       setReviewingPurgeId(null);
     }
-  }
+  }, [dataService]);
 
   async function confirmPurge() {
     if (!pendingPurgeClient) return;
@@ -134,7 +221,7 @@ function ArchivedClientsContent() {
             <button
               type="button"
               onClick={() => void refreshArchivedClients()}
-              disabled={isLoading}
+              disabled={isLoading || isLoadingMore}
               className="border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900 disabled:opacity-50"
             >
               Refresh
@@ -149,7 +236,7 @@ function ArchivedClientsContent() {
           <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
             <div>
               <h2 className="text-base font-semibold">Archived records</h2>
-              <p className="mt-1 text-xs text-zinc-500">{clients.length} client records</p>
+              <p className="mt-1 text-xs text-zinc-500">{clients.length} loaded client records</p>
             </div>
           </div>
           <div className="overflow-x-auto">
@@ -169,52 +256,32 @@ function ArchivedClientsContent() {
                 ) : clients.length === 0 ? (
                   <tr><td colSpan={5} className="px-4 py-10 text-center text-zinc-500">No archived clients.</td></tr>
                 ) : clients.map((client) => (
-                  <tr key={client.id}>
-                    {(() => {
-                      const readyToPurge = Boolean(client.purgeEligibleAt && Date.parse(client.purgeEligibleAt) <= Date.now());
-                      return <>
-                    <td className="px-4 py-3">
-                      <span className="block font-medium text-zinc-200">{client.firstName} {client.lastName}</span>
-                      <span className="mt-0.5 block text-xs text-zinc-500">{client.email}</span>
-                    </td>
-                    <td className="px-4 py-3 text-zinc-400">{client.company || '—'}</td>
-                    <td className="px-4 py-3 text-xs text-zinc-400">{formatDate(client.archivedAt ?? client.updatedAt)}</td>
-                    <td className="px-4 py-3 text-xs">
-                      {readyToPurge ? (
-                        <span className="text-emerald-300">Ready to purge</span>
-                      ) : (
-                        <span className="text-zinc-500">Available {formatDate(client.purgeEligibleAt ?? client.updatedAt)} ({ARCHIVE_RETENTION_DAYS} days)</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          aria-label={`Restore ${client.firstName} ${client.lastName}`}
-                          disabled={Boolean(restoringId || reviewingPurgeId) || isPurging}
-                          onClick={() => void restoreClient(client)}
-                          className="border border-emerald-800 px-3 py-2 text-sm text-emerald-200 hover:bg-emerald-950/50 disabled:opacity-50"
-                        >
-                          {restoringId === client.id ? 'Restoring...' : 'Restore'}
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={`Permanently purge ${client.firstName} ${client.lastName}`}
-                          disabled={!readyToPurge || Boolean(restoringId || reviewingPurgeId) || isPurging}
-                          onClick={() => void reviewPurge(client)}
-                          className="border border-rose-800 px-3 py-2 text-sm text-rose-200 hover:bg-rose-950/50 disabled:opacity-50"
-                        >
-                          {reviewingPurgeId === client.id ? 'Checking...' : 'Permanently purge'}
-                        </button>
-                      </div>
-                    </td>
-                      </>;
-                    })()}
-                  </tr>
+                  <ArchivedClientRow
+                    key={client.id}
+                    client={client}
+                    readyToPurge={Boolean(client.purgeEligibleAt && Date.parse(client.purgeEligibleAt) <= Date.now())}
+                    restoring={restoringId === client.id}
+                    reviewingPurge={reviewingPurgeId === client.id}
+                    disabled={Boolean(restoringId || reviewingPurgeId) || isPurging}
+                    onRestore={restoreClient}
+                    onReviewPurge={reviewPurge}
+                  />
                 ))}
               </tbody>
             </table>
           </div>
+          {hasMore && !isLoading && (
+            <div className="border-t border-zinc-800 px-5 py-4 text-center">
+              <button
+                type="button"
+                onClick={() => void loadMoreArchivedClients()}
+                disabled={isLoadingMore || Boolean(restoringId || reviewingPurgeId) || isPurging}
+                className="border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {isLoadingMore ? 'Loading...' : 'Load more archived clients'}
+              </button>
+            </div>
+          )}
         </section>
       </div>
       {pendingPurgeClient && (

@@ -3,11 +3,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   cancelVaultOtp,
-  getDecryptedCredential,
   getVaultCredentials,
   requestVaultOtp,
   storeVaultCredential,
-  verifyVaultOtp,
+  verifyAndRevealCredential,
 } from '../app/actions';
 
 interface CredentialVaultProps {
@@ -24,12 +23,10 @@ interface VaultRecord {
 type VisibleField = 'username' | 'password';
 
 interface PendingChallenge {
-  challengeId: string | null;
   vaultId: string;
   field: VisibleField;
   portalName: string;
   destination?: string;
-  simulationMessage?: string;
 }
 
 function EyeIcon({ visible }: { visible: boolean }) {
@@ -119,15 +116,13 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
       setIsProcessing(true);
       setErrorMessage('');
       setPin('');
-      setChallenge({ challengeId: null, vaultId: record.id, field, portalName: record.portalName });
+      setChallenge({ vaultId: record.id, field, portalName: record.portalName });
       const issuedChallenge = await requestVaultOtp(record.id, field);
       setChallenge({
-        challengeId: issuedChallenge.challengeId,
         vaultId: record.id,
         field,
         portalName: record.portalName,
         destination: issuedChallenge.destination,
-        simulationMessage: issuedChallenge.simulationMessage,
       });
     } catch (error) {
       setChallenge(null);
@@ -139,16 +134,15 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
 
   async function handleConfirmChallenge(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!challenge?.challengeId || !/^\d{6}$/.test(pin)) return;
+    if (!challenge?.destination || !/^\d{6}$/.test(pin)) return;
 
     try {
       setIsProcessing(true);
       setErrorMessage('');
-      await verifyVaultOtp(challenge.challengeId, pin);
-      const result = await getDecryptedCredential(
+      const result = await verifyAndRevealCredential(
         challenge.vaultId,
-        challenge.challengeId,
-        challenge.field
+        challenge.field,
+        pin
       );
       const key = `${challenge.vaultId}:${challenge.field}`;
       setRevealedValues((current) => ({ ...current, [key]: result.value }));
@@ -165,7 +159,7 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
   }
 
   function closeChallenge() {
-    if (challenge?.challengeId) void cancelVaultOtp(challenge.challengeId).catch(() => undefined);
+    if (challenge) void cancelVaultOtp(challenge.vaultId).catch(() => undefined);
     setChallenge(null);
     setPin('');
   }
@@ -282,11 +276,7 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
               </p>
             </div>
 
-            {challenge.simulationMessage ? (
-              <p role="status" className="border border-amber-900 bg-amber-950/40 p-3 text-sm text-amber-200">
-                {challenge.simulationMessage}
-              </p>
-            ) : !challenge.challengeId ? (
+            {!challenge.destination ? (
               <p role="status" className="text-sm text-zinc-400">Requesting verification code...</p>
             ) : null}
 
@@ -307,7 +297,7 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
                     setPin(event.target.value.replace(/\D/g, '').slice(0, 6));
                     setErrorMessage('');
                   }}
-                  disabled={!challenge.challengeId || isProcessing}
+                  disabled={!challenge.destination || isProcessing}
                   className="w-full border border-zinc-700 bg-zinc-900 px-3 py-3 text-center font-mono text-xl tracking-[0.3em] text-zinc-100 outline-none focus:border-emerald-500"
                   aria-label="Six-digit verification code"
                 />
@@ -323,7 +313,7 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
                 </button>
                 <button
                   type="submit"
-                  disabled={!challenge.challengeId || pin.length !== 6 || isProcessing}
+                  disabled={!challenge.destination || pin.length !== 6 || isProcessing}
                   className="bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isProcessing ? 'Verifying...' : 'Verify and reveal'}

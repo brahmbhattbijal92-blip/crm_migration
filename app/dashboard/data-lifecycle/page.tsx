@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   DashboardStorageProvider,
   useDashboardStorage,
@@ -9,6 +9,7 @@ import {
 } from '../StorageContext';
 
 const INACTIVITY_OPTIONS = [30, 60, 90, 180, 365] as const;
+const CLIENT_PAGE_SIZE = 50;
 
 function dateLabel(value: string): string {
   const date = new Date(value);
@@ -30,12 +31,50 @@ function csvCell(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
+interface InactiveAccountRowProps {
+  account: ClientRecord;
+  inactiveDays: number;
+  selected: boolean;
+  onToggle(id: string): void;
+}
+
+const InactiveAccountRow = React.memo(function InactiveAccountRow({
+  account,
+  inactiveDays,
+  selected,
+  onToggle,
+}: InactiveAccountRowProps) {
+  return (
+    <tr className={selected ? 'bg-emerald-950/20' : 'hover:bg-zinc-800/30'}>
+      <td className="px-4 py-3">
+        <input
+          type="checkbox"
+          aria-label={`Select ${account.firstName} ${account.lastName}`}
+          checked={selected}
+          onChange={() => onToggle(account.id)}
+          className="h-4 w-4 accent-emerald-500"
+        />
+      </td>
+      <td className="px-4 py-3">
+        <span className="block font-medium text-zinc-200">{account.firstName} {account.lastName}</span>
+        <span className="mt-0.5 block text-xs text-zinc-500">{account.email}</span>
+      </td>
+      <td className="px-4 py-3 text-zinc-400">{account.company || '—'}</td>
+      <td className="px-4 py-3 text-xs text-zinc-400">{dateLabel(account.createdAt)}</td>
+      <td className="px-4 py-3 text-xs text-zinc-400">{dateLabel(account.lastInteractionAt)}</td>
+      <td className="px-4 py-3 text-xs text-amber-300">{inactiveDays}+ days</td>
+    </tr>
+  );
+});
+
 function DataLifecycleContent() {
   const { dataService, preference } = useDashboardStorage();
   const [accounts, setAccounts] = useState<ClientRecord[]>([]);
   const [inactiveDays, setInactiveDays] = useState<number>(90);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [isLoading, setIsLoading] = useState(true);
+  const [hasMoreAccounts, setHasMoreAccounts] = useState(false);
+  const [isLoadingMoreAccounts, setIsLoadingMoreAccounts] = useState(false);
   const [isReviewingPurge, setIsReviewingPurge] = useState(false);
   const [isPurging, setIsPurging] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -46,15 +85,20 @@ function DataLifecycleContent() {
   const [pendingAttachmentCount, setPendingAttachmentCount] = useState(0);
   const [showPurgeConfirmation, setShowPurgeConfirmation] = useState(false);
 
-  const inactiveAccounts = getInactiveAccounts(accounts, inactiveDays, referenceTime);
+  const inactiveAccounts = useMemo(
+    () => getInactiveAccounts(accounts, inactiveDays, referenceTime),
+    [accounts, inactiveDays, referenceTime]
+  );
   const allVisibleSelected = inactiveAccounts.length > 0 && inactiveAccounts.every((account) => selectedIds.has(account.id));
   const selectedCount = inactiveAccounts.reduce((count, account) => count + Number(selectedIds.has(account.id)), 0);
 
   async function loadAccounts() {
+    setIsLoading(true);
     setErrorMessage('');
     try {
-      const clients = await dataService.listClients();
-      setAccounts(clients);
+      const page = await dataService.listClientPage(false, 0, CLIENT_PAGE_SIZE);
+      setAccounts(page.items);
+      setHasMoreAccounts(page.hasMore);
       setSelectedIds(new Set());
       const refreshedAt = new Date();
       setReferenceTime(refreshedAt.getTime());
@@ -66,13 +110,32 @@ function DataLifecycleContent() {
     }
   }
 
+  async function loadMoreAccounts() {
+    if (!hasMoreAccounts || isLoading || isLoadingMoreAccounts || isPurging || isReviewingPurge) return;
+    setIsLoadingMoreAccounts(true);
+    setErrorMessage('');
+    try {
+      const page = await dataService.listClientPage(false, accounts.length, CLIENT_PAGE_SIZE);
+      setAccounts((current) => {
+        const existingIds = new Set(current.map((account) => account.id));
+        return [...current, ...page.items.filter((account) => !existingIds.has(account.id))];
+      });
+      setHasMoreAccounts(page.hasMore);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'More accounts could not be loaded.');
+    } finally {
+      setIsLoadingMoreAccounts(false);
+    }
+  }
+
   useEffect(() => {
     let active = true;
     setIsLoading(true);
-    dataService.listClients()
-      .then((clients) => {
+    dataService.listClientPage(false, 0, CLIENT_PAGE_SIZE)
+      .then((page) => {
         if (!active) return;
-        setAccounts(clients);
+        setAccounts(page.items);
+        setHasMoreAccounts(page.hasMore);
         setSelectedIds(new Set());
         const refreshedAt = new Date();
         setReferenceTime(refreshedAt.getTime());
@@ -88,14 +151,14 @@ function DataLifecycleContent() {
     return () => { active = false; };
   }, [dataService]);
 
-  function toggleAccount(id: string) {
+  const toggleAccount = useCallback((id: string) => {
     setSelectedIds((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  }
+  }, []);
 
   function toggleAllVisible() {
     setSelectedIds((current) => {
@@ -226,6 +289,7 @@ function DataLifecycleContent() {
             <button
               type="button"
               onClick={() => void loadAccounts()}
+              disabled={isLoading || isLoadingMoreAccounts}
               className="border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900"
             >
               Refresh
@@ -238,7 +302,7 @@ function DataLifecycleContent() {
 
         <section className="grid grid-cols-2 divide-x divide-zinc-800 border border-zinc-800 bg-zinc-900/40 sm:grid-cols-4">
           <div className="p-4">
-            <p className="text-xs text-zinc-500">Matching accounts</p>
+            <p className="text-xs text-zinc-500">Loaded matching accounts</p>
             <p className="mt-1 text-2xl font-semibold">{inactiveAccounts.length}</p>
           </div>
           <div className="p-4">
@@ -305,29 +369,29 @@ function DataLifecycleContent() {
                 ) : inactiveAccounts.length === 0 ? (
                   <tr><td colSpan={6} className="px-4 py-12 text-center text-zinc-500">No accounts meet this inactivity threshold.</td></tr>
                 ) : inactiveAccounts.map((account) => (
-                  <tr key={account.id} className={selectedIds.has(account.id) ? 'bg-emerald-950/20' : 'hover:bg-zinc-800/30'}>
-                    <td className="px-4 py-3">
-                      <input
-                        type="checkbox"
-                        aria-label={`Select ${account.firstName} ${account.lastName}`}
-                        checked={selectedIds.has(account.id)}
-                        onChange={() => toggleAccount(account.id)}
-                        className="h-4 w-4 accent-emerald-500"
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="block font-medium text-zinc-200">{account.firstName} {account.lastName}</span>
-                      <span className="mt-0.5 block text-xs text-zinc-500">{account.email}</span>
-                    </td>
-                    <td className="px-4 py-3 text-zinc-400">{account.company || '—'}</td>
-                    <td className="px-4 py-3 text-xs text-zinc-400">{dateLabel(account.createdAt)}</td>
-                    <td className="px-4 py-3 text-xs text-zinc-400">{dateLabel(account.lastInteractionAt)}</td>
-                    <td className="px-4 py-3 text-xs text-amber-300">{inactiveDays}+ days</td>
-                  </tr>
+                  <InactiveAccountRow
+                    key={account.id}
+                    account={account}
+                    inactiveDays={inactiveDays}
+                    selected={selectedIds.has(account.id)}
+                    onToggle={toggleAccount}
+                  />
                 ))}
               </tbody>
             </table>
           </div>
+          {hasMoreAccounts && !isLoading && (
+            <div className="border-t border-zinc-800 px-5 py-4 text-center">
+              <button
+                type="button"
+                onClick={() => void loadMoreAccounts()}
+                disabled={isLoadingMoreAccounts || isReviewingPurge || isPurging}
+                className="border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {isLoadingMoreAccounts ? 'Loading...' : 'Load more accounts'}
+              </button>
+            </div>
+          )}
           <footer className="border-t border-zinc-800 px-5 py-3 text-xs text-zinc-500">
             Purge requires a clean invoice review and explicit irreversible-action confirmation.
           </footer>
