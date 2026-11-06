@@ -138,6 +138,8 @@ function DashboardContent() {
   const [successMessage, setSuccessMessage] = useState('');
   const [documentSuccessMessage, setDocumentSuccessMessage] = useState('');
   const [errorFocusVersion, setErrorFocusVersion] = useState(0);
+  const [isDashboardLoading, setIsDashboardLoading] = useState(true);
+  const [isSelectedClientLoading, setIsSelectedClientLoading] = useState(false);
   const errorAlertRef = useRef<HTMLDivElement>(null);
 
   const visibleClients = showArchivedClients ? archivedClients : clients;
@@ -173,6 +175,7 @@ function DashboardContent() {
     if (!isReady) return;
     let active = true;
     async function loadDashboard() {
+      setIsDashboardLoading(true);
       setErrorMessage('');
       try {
         const [clientPage, archivedPage, notificationRows] = await Promise.all([
@@ -192,6 +195,8 @@ function DashboardContent() {
           : (clientPage.items[0]?.id ?? archivedPage.items[0]?.id ?? ''));
       } catch (error) {
         if (active) setErrorMessage(error instanceof Error ? error.message : 'Dashboard data could not be loaded.');
+      } finally {
+        if (active) setIsDashboardLoading(false);
       }
     }
     void loadDashboard();
@@ -202,9 +207,11 @@ function DashboardContent() {
     if (!isReady) return;
     let active = true;
     if (!selectedClientId) {
+      setIsSelectedClientLoading(false);
       return () => { active = false; };
     }
 
+    setIsSelectedClientLoading(true);
     async function loadSelectedClientData() {
       try {
         const [documentPage, invoicePage, grantPage, balances, summary] = await Promise.all([
@@ -226,6 +233,8 @@ function DashboardContent() {
         setGrantHasMore(grantPage.hasMore);
       } catch (error) {
         if (active) setErrorMessage(error instanceof Error ? error.message : 'Selected client data could not be loaded.');
+      } finally {
+        if (active) setIsSelectedClientLoading(false);
       }
     }
     void loadSelectedClientData();
@@ -233,6 +242,7 @@ function DashboardContent() {
   }, [dataService, isReady, preference, selectedClientId, selectedClientDataVersion]);
 
   async function refreshDashboard() {
+    setIsDashboardLoading(true);
     setErrorMessage('');
     try {
       const [clientPage, archivedPage, notificationRows] = await Promise.all([
@@ -252,6 +262,8 @@ function DashboardContent() {
       setSelectedClientDataVersion((version) => version + 1);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Dashboard data could not be refreshed.');
+    } finally {
+      setIsDashboardLoading(false);
     }
   }
 
@@ -674,6 +686,12 @@ function DashboardContent() {
           <div ref={errorAlertRef} role="alert" tabIndex={-1} className="border border-rose-900 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">
             {errorMessage}
           </div>
+        )}
+        {(isDashboardLoading || isSelectedClientLoading) && (
+          <p role="status" aria-live="polite" aria-busy="true" className="flex items-center gap-2 border border-zinc-800 bg-zinc-900/60 px-4 py-3 text-sm text-zinc-300">
+            <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-400 border-r-transparent" />
+            {isDashboardLoading ? 'Loading your workspace...' : 'Loading selected client details...'}
+          </p>
         )}
         {successMessage && (
           <div role="status" className="border border-emerald-900 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-200">
