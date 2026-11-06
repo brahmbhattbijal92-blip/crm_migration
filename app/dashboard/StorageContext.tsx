@@ -1371,16 +1371,18 @@ class SupabaseDataService implements IDataService {
 interface DashboardStorageValue {
   preference: StoragePreference;
   dataService: IDataService;
+  isReady: boolean;
 }
 
 const DashboardStorageContext = createContext<DashboardStorageValue | null>(null);
 
 export function DashboardStorageProvider({ children }: { children: React.ReactNode }) {
-  const { storagePreference } = useStorage();
+  const { storagePreference, isHydrated } = useStorage();
   const value = useMemo<DashboardStorageValue>(() => ({
     preference: storagePreference,
     dataService: storagePreference === 'cloud' ? new SupabaseDataService() : new IndexedDbDataService(),
-  }), [storagePreference]);
+    isReady: isHydrated,
+  }), [storagePreference, isHydrated]);
 
   return (
     <DashboardStorageContext.Provider value={value}>

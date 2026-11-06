@@ -99,7 +99,7 @@ function formatMoney(value: number, currency: string): string {
 }
 
 function DashboardContent() {
-  const { preference, dataService } = useDashboardStorage();
+  const { preference, dataService, isReady } = useDashboardStorage();
   const { updateStoragePreference } = useStorage();
   const isCloudStorageConfigured = getSupabasePublicConfig() !== null;
   const [clients, setClients] = useState<ClientRecord[]>([]);
@@ -170,6 +170,7 @@ function DashboardContent() {
   }
 
   useEffect(() => {
+    if (!isReady) return;
     let active = true;
     async function loadDashboard() {
       setErrorMessage('');
@@ -195,9 +196,10 @@ function DashboardContent() {
     }
     void loadDashboard();
     return () => { active = false; };
-  }, [dataService]);
+  }, [dataService, isReady]);
 
   useEffect(() => {
+    if (!isReady) return;
     let active = true;
     if (!selectedClientId) {
       return () => { active = false; };
@@ -228,7 +230,7 @@ function DashboardContent() {
     }
     void loadSelectedClientData();
     return () => { active = false; };
-  }, [dataService, preference, selectedClientId, selectedClientDataVersion]);
+  }, [dataService, isReady, preference, selectedClientId, selectedClientDataVersion]);
 
   async function refreshDashboard() {
     setErrorMessage('');

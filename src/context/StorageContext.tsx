@@ -7,6 +7,7 @@ export type StoragePreference = 'local' | 'cloud';
 export interface StorageContextType {
   /** Global storage target preference indicating whether queries/mutations route locally or to cloud endpoints */
   storagePreference: StoragePreference;
+  isHydrated: boolean;
   /** Indicates asynchronous transition state when switching storage providers */
   isPending: boolean;
   /** Updates the global storage preference across local storage and application state */
@@ -16,6 +17,9 @@ export interface StorageContextType {
 const STORAGE_PREF_KEY = 'crm_migration_storage_pref';
 const STORAGE_PREF_EVENT = 'crm-storage-preference-update';
 const StorageContext = createContext<StorageContextType | undefined>(undefined);
+const subscribeHydration = () => () => undefined;
+const getHydratedSnapshot = () => true;
+const getServerHydrationSnapshot = () => false;
 
 const readStoragePreference = (): StoragePreference => {
   if (typeof window === 'undefined') return 'local';
@@ -41,6 +45,11 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     readStoragePreference,
     getServerStoragePreference
   );
+  const isHydrated = useSyncExternalStore(
+    subscribeHydration,
+    getHydratedSnapshot,
+    getServerHydrationSnapshot
+  );
 
   const updateStoragePreference = async (preference: StoragePreference) => {
     if (typeof window !== 'undefined') {
@@ -50,7 +59,7 @@ export const StorageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   return (
-    <StorageContext.Provider value={{ storagePreference, isPending: false, updateStoragePreference }}>
+    <StorageContext.Provider value={{ storagePreference, isHydrated, isPending: false, updateStoragePreference }}>
       {children}
     </StorageContext.Provider>
   );

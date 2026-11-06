@@ -7,8 +7,6 @@ import { getSupabaseClient } from '../../src/lib/supabase';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -32,6 +30,9 @@ export default function LoginPage() {
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const email = String(formData.get('email') ?? '').trim();
+    const password = String(formData.get('password') ?? '');
     setIsSubmitting(true);
     setErrorMessage('');
     try {
@@ -63,14 +64,14 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <label className="block space-y-1.5">
             <span className="text-xs text-zinc-400">Work email</span>
-            <input required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className="w-full border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-sm outline-none focus:border-emerald-500" />
+            <input required type="email" name="email" autoComplete="username" className="w-full border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-sm outline-none focus:border-emerald-500" />
           </label>
           <label className="block space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-xs text-zinc-400">Password</span>
               <Link href="/forgot-password" className="text-sm font-medium text-emerald-300 underline underline-offset-4 hover:text-emerald-200">Forgot password?</Link>
             </div>
-            <input required type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} className="w-full border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-sm outline-none focus:border-emerald-500" />
+            <input required type="password" name="password" autoComplete="current-password" className="w-full border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-sm outline-none focus:border-emerald-500" />
           </label>
           <button type="submit" disabled={isSubmitting} className="w-full bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-50">
             {isSubmitting ? 'Signing in...' : 'Sign in'}
