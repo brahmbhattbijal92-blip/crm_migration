@@ -50,6 +50,7 @@ function validateDatabaseUrl(): void {
  */
 export async function executeTenantQuery<T>(
   organizationId: string,
+  userId: string,
   callback: (client: PoolClient) => Promise<T>
 ): Promise<T> {
   validateDatabaseUrl();
@@ -70,10 +71,13 @@ export async function executeTenantQuery<T>(
     }
 
     // Inject the tenant organization ID context into the session parameters
-    await client.query('SELECT set_config($1, $2, true)', [
-      'app.current_organization_id',
-      organizationId,
-    ]);
+    await client.query(
+      `SELECT
+         set_config('request.jwt.claim.sub', $1, true),
+         set_config('request.jwt.claims', $2, true),
+         set_config('app.current_organization_id', $3, true)`,
+      [userId, JSON.stringify({ sub: userId, role: 'authenticated' }), organizationId]
+    );
     
     // Execute your business logic queries securely within the RLS sandbox container
     const result = await callback(client);

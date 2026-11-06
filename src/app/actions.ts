@@ -31,17 +31,17 @@ function maskPhoneNumber(phoneNumber: string | undefined): string {
   return digits.length >= 4 ? `••••••${digits.slice(-4)}` : 'configured agent phone';
 }
 
-async function getActiveOrganizationId(agentOrAdminOnly = false): Promise<string> {
-  const { organizationId } = await requireOrganizationContext({ agentOrAdminOnly });
-  return organizationId;
+async function getActiveOrganizationContext(agentOrAdminOnly = false): Promise<{ organizationId: string; userId: string }> {
+  const { organizationId, user } = await requireOrganizationContext({ agentOrAdminOnly });
+  return { organizationId, userId: user.id };
 }
 
 /**
  * 1. SELECT - Fetch all active clients for the active tenant organization
  */
 export async function getClients() {
-  const organizationId = await getActiveOrganizationId();
-  return await executeTenantQuery(organizationId, async (client) => {
+  const { organizationId, userId } = await getActiveOrganizationContext();
+  return await executeTenantQuery(organizationId, userId, async (client) => {
     // RLS isolates the tenant. The soft-delete condition ensures we don't display deleted files.
     const query = `
       SELECT id, first_name, last_name, email, company, status, created_at,
@@ -59,8 +59,8 @@ export async function getClients() {
  * 2. INSERT - Onboard a new migration client
  */
 export async function createClient(formData: { firstName: string; lastName: string; email: string }) {
-  const organizationId = await getActiveOrganizationId(true);
-  return await executeTenantQuery(organizationId, async (client) => {
+  const { organizationId, userId } = await getActiveOrganizationContext(true);
+  return await executeTenantQuery(organizationId, userId, async (client) => {
     const query = `
       INSERT INTO clients (organization_id, first_name, last_name, email)
       VALUES ($1, $2, $3, $4)
@@ -82,8 +82,8 @@ export async function createClient(formData: { firstName: string; lastName: stri
  */
 export async function updateClientStatus(clientId: string, newStatus: string) {
   if (!['active', 'pending', 'completed'].includes(newStatus)) throw new Error('Choose a valid active client status.');
-  const organizationId = await getActiveOrganizationId(true);
-  return await executeTenantQuery(organizationId, async (client) => {
+  const { organizationId, userId } = await getActiveOrganizationContext(true);
+  return await executeTenantQuery(organizationId, userId, async (client) => {
     const query = `
       UPDATE clients 
       SET status = $1 
@@ -99,8 +99,8 @@ export async function updateClientStatus(clientId: string, newStatus: string) {
  * 4. DELETE - Soft-delete a client to retain financial or ledger audit trails
  */
 export async function softDeleteClient(clientId: string) {
-  const organizationId = await getActiveOrganizationId(true);
-  return await executeTenantQuery(organizationId, async (client) => {
+  const { organizationId, userId } = await getActiveOrganizationContext(true);
+  return await executeTenantQuery(organizationId, userId, async (client) => {
     // Sets deleted_at to timestamp instead of running an outright hard destructive execution line.
     const query = `
       UPDATE clients 
@@ -133,7 +133,7 @@ export async function storeVaultCredential(
     throw new Error('Vault input exceeds the allowed length.');
   }
 
-  const { supabase, organizationId, user } = await requireOrganizationContext({ agentOrAdminOnly: true });
+  const { organizationId, userId } = await getActiveOrganizationContext(true);
   const encryptedUser = encryptVaultData(
     clearTextUser,
     vaultCredentialContext(clientId, normalizedPortalName, 'username')
@@ -143,64 +143,70 @@ export async function storeVaultCredential(
     vaultCredentialContext(clientId, normalizedPortalName, 'password')
   );
 
-  const { data, error } = await supabase
-    .from('credentials_vault')
-    .upsert({
-      organization_id: organizationId,
-      client_id: clientId,
-      portal_name: normalizedPortalName,
-      encrypted_username: encryptedUser,
-      encrypted_password: encryptedPass,
-      last_verified: new Date().toISOString(),
-      created_by: user.id,
-    }, { onConflict: 'organization_id,client_id,portal_name' })
-    .select('id, portal_name, last_verified')
-    .single();
-  if (error) throw new Error(`Vault credential could not be saved: ${error.message}`);
-  if (!data) throw new Error('Vault credential could not be saved.');
-  return {
-    id: String(data.id),
-    portalName: String(data.portal_name),
-    lastVerified: String(data.last_verified ?? ''),
-  };
+  return executeTenantQuery(organizationId, userId, async (client) => {
+    const result = await client.query(
+      `INSERT INTO credentials_vault (
+         organization_id, client_id, portal_name, encrypted_username, encrypted_password, last_verified
+       )
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (organization_id, client_id, portal_name)
+       DO UPDATE SET
+         encrypted_username = EXCLUDED.encrypted_username,
+         encrypted_password = EXCLUDED.encrypted_password,
+         last_verified = NOW()
+       RETURNING id, portal_name, last_verified`,
+      [organizationId, clientId, normalizedPortalName, encryptedUser, encryptedPass]
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error('Vault credential could not be saved.');
+    return {
+      id: String(row.id),
+      portalName: String(row.portal_name),
+      lastVerified: row.last_verified instanceof Date
+        ? row.last_verified.toISOString()
+        : String(row.last_verified ?? ''),
+    };
+  });
 }
 
 export async function getVaultCredentials(clientId: string) {
   if (!clientId.trim()) throw new Error('Client ID is required.');
 
-  const { supabase, organizationId } = await requireOrganizationContext({ agentOrAdminOnly: true });
-  const { data, error } = await supabase
-    .from('credentials_vault')
-    .select('id, portal_name, last_verified')
-    .eq('client_id', clientId)
-    .eq('organization_id', organizationId)
-    .is('deleted_at', null)
-    .order('last_verified', { ascending: false, nullsFirst: false });
-  if (error) throw new Error(`Vault credentials could not be loaded: ${error.message}`);
-  return (data ?? []).map((row): VaultCredentialMetadata => ({
-    id: String(row.id),
-    portalName: String(row.portal_name),
-    lastVerified: String(row.last_verified ?? ''),
-  }));
+  const { organizationId, userId } = await getActiveOrganizationContext(true);
+  return executeTenantQuery(organizationId, userId, async (client) => {
+    const result = await client.query(
+      `SELECT id, portal_name, last_verified
+       FROM credentials_vault
+       WHERE client_id = $1 AND organization_id = $2 AND deleted_at IS NULL
+       ORDER BY last_verified DESC NULLS LAST`,
+      [clientId, organizationId]
+    );
+    return result.rows.map((row): VaultCredentialMetadata => ({
+      id: String(row.id),
+      portalName: String(row.portal_name),
+      lastVerified: row.last_verified instanceof Date
+        ? row.last_verified.toISOString()
+        : String(row.last_verified ?? ''),
+    }));
+  });
 }
 
 export async function requestVaultOtp(vaultId: string, field: VaultField) {
   if (typeof vaultId !== 'string' || !UUID_PATTERN.test(vaultId)) throw new Error('Vault record is required.');
   if (field !== 'username' && field !== 'password') throw new Error('Invalid credential field.');
-  const { supabase, organizationId, user } = await requireOrganizationContext({ agentOrAdminOnly: true });
+  const { organizationId, user } = await requireOrganizationContext({ agentOrAdminOnly: true });
   if (!user.phone || !user.phone_confirmed_at) {
     throw new Error('Add and verify a phone number on your account before revealing credentials.');
   }
 
-  const { data: vaultRecord, error: vaultRecordError } = await supabase
-    .from('credentials_vault')
-    .select('id')
-    .eq('id', vaultId)
-    .eq('organization_id', organizationId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (vaultRecordError) throw new Error(`Vault record access check failed: ${vaultRecordError.message}`);
-  if (!vaultRecord) throw new Error('Vault record was not found or is not accessible.');
+  const recordExists = await executeTenantQuery(organizationId, user.id, async (client) => {
+    const result = await client.query(
+      'SELECT id FROM credentials_vault WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL',
+      [vaultId, organizationId]
+    );
+    return result.rows.length > 0;
+  });
+  if (!recordExists) throw new Error('Vault record was not found or is not accessible.');
   if (!(await reserveVaultCodeRequest(user.id))) {
     throw new Error('A verification code was just requested. Wait 30 seconds before trying again.');
   }
@@ -226,7 +232,7 @@ export async function requestVaultOtp(vaultId: string, field: VaultField) {
 }
 
 export async function verifyAndRevealCredential(vaultId: string, field: VaultField, pin: string) {
-  const { supabase, organizationId, user } = await requireOrganizationContext({ agentOrAdminOnly: true });
+  const { organizationId, user } = await requireOrganizationContext({ agentOrAdminOnly: true });
   if (typeof vaultId !== 'string' || !UUID_PATTERN.test(vaultId)) {
     throw new Error('A valid credential is required.');
   }
@@ -241,14 +247,15 @@ export async function verifyAndRevealCredential(vaultId: string, field: VaultFie
     throw new Error('The verification code is incorrect or expired. Request a new code.');
   }
 
-  const { data: row, error: rowError } = await supabase
-    .from('credentials_vault')
-    .select('client_id, portal_name, encrypted_username, encrypted_password')
-    .eq('id', vaultId)
-    .eq('organization_id', organizationId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (rowError) throw new Error(`Credential lookup failed: ${rowError.message}`);
+  const row = await executeTenantQuery(organizationId, user.id, async (client) => {
+    const result = await client.query(
+      `SELECT client_id, portal_name, encrypted_username, encrypted_password
+       FROM credentials_vault
+       WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`,
+      [vaultId, organizationId]
+    );
+    return result.rows[0];
+  });
   if (!row) throw new Error('Record not found or access denied by tenant boundary protection.');
 
   const encryptedValue = field === 'username' ? row.encrypted_username : row.encrypted_password;
