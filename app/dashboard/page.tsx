@@ -551,9 +551,14 @@ function DashboardContent() {
   async function shareSelectedClientWithPortal() {
     if (!selectedClient) return;
     const extensionId = process.env.NEXT_PUBLIC_MIGRATION_EXTENSION_ID?.trim();
+    if (!extensionId) {
+      setErrorMessage('The companion extension ID is not configured for this deployment. Set NEXT_PUBLIC_MIGRATION_EXTENSION_ID and redeploy.');
+      return;
+    }
+
     const extensionRuntime = (window as WindowWithExtension).chrome?.runtime;
-    if (!extensionId || !extensionRuntime) {
-      setErrorMessage('Install the companion extension and configure NEXT_PUBLIC_MIGRATION_EXTENSION_ID before sharing.');
+    if (typeof extensionRuntime?.sendMessage !== 'function') {
+      setErrorMessage('Chrome extension messaging is unavailable in this browser. Open the dashboard in Chrome with the companion extension installed.');
       return;
     }
 
