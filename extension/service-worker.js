@@ -1,5 +1,4 @@
 const TRUSTED_APP_ORIGINS = new Set([
-  'http://localhost:3000',
   'https://crm-migration-three.vercel.app',
 ]);
 const TRUSTED_PORTAL_ORIGIN = 'https://online.immi.gov.au';
@@ -44,20 +43,36 @@ function normalizeProfile(profile) {
 }
 
 function isTrustedAppSender(sender) {
-  if (typeof sender?.origin === 'string' && sender.origin) {
-    return TRUSTED_APP_ORIGINS.has(sender.origin);
+  let senderOrigin = typeof sender?.origin === 'string' && sender.origin ? sender.origin : null;
+  if (!senderOrigin && sender?.url) {
+    try {
+      senderOrigin = new URL(sender.url).origin;
+    } catch {
+      return false;
+    }
   }
-  if (!sender?.url) return false;
+  if (!senderOrigin) return false;
+  if (TRUSTED_APP_ORIGINS.has(senderOrigin)) return true;
+
   try {
-    return TRUSTED_APP_ORIGINS.has(new URL(sender.url).origin);
+    const url = new URL(senderOrigin);
+    return url.protocol === 'http:' && url.hostname === 'localhost';
   } catch {
     return false;
   }
 }
 
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
-  if (!isTrustedAppSender(sender) || message?.type !== 'migration-assistant:share-profile') {
-    sendResponse({ ok: false, error: 'Untrusted sender or unsupported request.' });
+  if (!isTrustedAppSender(sender)) {
+    const senderOrigin = sender?.origin || sender?.url || 'unknown origin';
+    sendResponse({
+      ok: false,
+      error: `Untrusted app origin: ${senderOrigin}. Use localhost or the approved production app, then reload the extension.`,
+    });
+    return false;
+  }
+  if (message?.type !== 'migration-assistant:share-profile') {
+    sendResponse({ ok: false, error: 'Unsupported profile-sharing request.' });
     return false;
   }
 

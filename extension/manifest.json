@@ -19,7 +19,7 @@
   ],
   "externally_connectable": {
     "matches": [
-      "http://localhost:3000/*",
+      "http://localhost/*",
       "https://crm-migration-three.vercel.app/*"
     ]
   }

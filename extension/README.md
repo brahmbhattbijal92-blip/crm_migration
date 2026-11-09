@@ -6,7 +6,7 @@
 2. Choose **Load unpacked** and select this `extension` directory.
 3. Copy the extension ID shown by Chrome.
 4. Add `NEXT_PUBLIC_MIGRATION_EXTENSION_ID=<extension-id>` to the app's local `.env`, then restart Next.js.
-5. For local development, use `http://localhost:3000`. The extension also accepts external messages from the production app at `https://crm-migration-three.vercel.app`.
+5. For local development, use any `http://localhost` port. The extension also accepts external messages from the production app at `https://crm-migration-three.vercel.app`.
 6. Keep exactly one ImmiAccount tab open at `https://online.immi.gov.au`, select a client on `/dashboard`, then choose **Share selected client**. Click the extension's floating **Fill form from client** button.
 
 ## Security behavior
