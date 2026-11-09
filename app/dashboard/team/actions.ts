@@ -78,32 +78,27 @@ export async function inviteOrganizationAgent(email: string) {
   return { email: normalizedEmail };
 }
 
-export async function removeOrganizationAgent(userId: string) {
+export async function setOrganizationAgentActive(userId: string, isActive: boolean) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
     throw new Error('Select a valid organization member.');
   }
+  if (typeof isActive !== 'boolean') throw new Error('Choose a valid agent status.');
 
-  const { organizationId, user, supabase } = await requireOrganizationContext({ adminOnly: true });
+  const { organizationId, user } = await requireOrganizationContext({ adminOnly: true });
   if (user.id === userId) throw new Error('You cannot remove your own account.');
 
-  const { data: membership, error: lookupError } = await supabase
+  const admin = createSupabaseAdminClient();
+  const { data: updatedMemberships, error: updateError } = await admin
     .from('organization_memberships')
-    .select('role')
+    .update({ role: isActive ? 'agent' : 'inactive' })
     .eq('organization_id', organizationId)
     .eq('user_id', userId)
-    .maybeSingle();
-  if (lookupError) throw new Error(`Agent lookup failed: ${lookupError.message}`);
-  if (!membership || String(membership.role).toLowerCase() !== 'agent') {
-    throw new Error('Only organization agents can be removed.');
-  }
-
-  const { data: removedMemberships, error: removalError } = await supabase
-    .from('organization_memberships')
-    .delete()
-    .eq('organization_id', organizationId)
-    .eq('user_id', userId)
-    .eq('role', 'agent')
+    .eq('role', isActive ? 'inactive' : 'agent')
     .select('user_id');
-  if (removalError) throw new Error(`Agent removal failed: ${removalError.message}`);
-  if (!removedMemberships?.length) throw new Error('This agent is no longer a member of the organization.');
+  if (updateError) throw new Error(`Agent status update failed: ${updateError.message}`);
+  if (!updatedMemberships?.length) {
+    throw new Error(isActive
+      ? 'This member is not inactive in the organization.'
+      : 'Only active agents can be deactivated.');
+  }
 }

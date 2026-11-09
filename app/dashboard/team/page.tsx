@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import React, { startTransition, useEffect, useState } from 'react';
-import { inviteOrganizationAgent, listOrganizationMembers, removeOrganizationAgent } from './actions';
+import { inviteOrganizationAgent, listOrganizationMembers, setOrganizationAgentActive } from './actions';
 
 type TeamMember = Awaited<ReturnType<typeof listOrganizationMembers>>[number];
 
@@ -64,19 +64,23 @@ export default function TeamPage() {
     }
   }
 
-  async function handleRemoveAgent(member: TeamMember) {
+  async function handleSetAgentActive(member: TeamMember) {
     const memberName = member.displayName || member.email || 'this agent';
-    if (!window.confirm(`Remove ${memberName} from this organization? They will lose access to its workspace.`)) return;
+    const isActive = member.role === 'inactive';
+    const confirmation = isActive
+      ? `Reactivate ${memberName} in this organization?`
+      : `Deactivate ${memberName}? They will lose access, but their membership and records will be retained.`;
+    if (!window.confirm(confirmation)) return;
 
     setRemovingUserId(member.userId);
     setErrorMessage('');
     setSuccessMessage('');
     try {
-      await removeOrganizationAgent(member.userId);
-      setSuccessMessage(`${memberName} was removed from the organization.`);
+      await setOrganizationAgentActive(member.userId, isActive);
+      setSuccessMessage(`${memberName} was ${isActive ? 'reactivated' : 'deactivated'} in the organization.`);
       await refreshMembers();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Agent could not be removed.');
+      setErrorMessage(error instanceof Error ? error.message : 'Agent status could not be changed.');
     } finally {
       setRemovingUserId(null);
     }
@@ -128,14 +132,16 @@ export default function TeamPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="border border-zinc-700 px-2 py-1 text-xs uppercase text-zinc-400">{member.role}</span>
-                  {member.role === 'agent' && (
+                  {(member.role === 'agent' || member.role === 'inactive') && (
                     <button
                       type="button"
                       disabled={removingUserId !== null}
-                      onClick={() => void handleRemoveAgent(member)}
+                      onClick={() => void handleSetAgentActive(member)}
                       className="text-xs text-rose-300 underline underline-offset-4 hover:text-rose-200 disabled:opacity-50"
                     >
-                      {removingUserId === member.userId ? 'Removing...' : 'Remove agent'}
+                      {removingUserId === member.userId
+                        ? (member.role === 'inactive' ? 'Reactivating...' : 'Deactivating...')
+                        : (member.role === 'inactive' ? 'Reactivate agent' : 'Deactivate agent')}
                     </button>
                   )}
                 </div>
