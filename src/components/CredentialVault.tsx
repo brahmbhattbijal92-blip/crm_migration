@@ -2,7 +2,6 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  cancelVaultOtp,
   getVaultCredentials,
   requestVaultOtp,
   storeVaultCredential,
@@ -159,7 +158,6 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
   }
 
   function closeChallenge() {
-    if (challenge) void cancelVaultOtp(challenge.vaultId).catch(() => undefined);
     setChallenge(null);
     setPin('');
   }
@@ -272,7 +270,7 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
                 Verify before reveal
               </h3>
               <p className="text-sm text-zinc-400">
-                Enter the six-digit code sent to {challenge.destination ?? 'the agent phone'} for {challenge.portalName}.
+                Enter the six-digit email code sent to {challenge.destination ?? 'your account email'} for {challenge.portalName}.
               </p>
             </div>
 

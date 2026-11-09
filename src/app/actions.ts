@@ -1,15 +1,9 @@
 'use server';
 
-import { randomInt } from 'node:crypto';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { executeTenantQuery } from '@/src/lib/db';
+import { getSupabasePublicConfig } from '@/src/lib/supabase/config';
 import { requireOrganizationContext } from '@/src/lib/supabase/server';
-import {
-  deleteVaultChallenge,
-  reserveVaultCodeRequest,
-  saveVaultChallenge,
-  verifyAndConsumeVaultChallenge,
-} from '@/src/lib/redis';
-import { sendVaultVerificationCode } from '@/src/lib/sms';
 import {
   decryptVaultData,
   encryptVaultData,
@@ -23,12 +17,25 @@ interface VaultCredentialMetadata {
   lastVerified: string;
 }
 
-const VAULT_OTP_TTL_MS = 5 * 60 * 1000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function maskPhoneNumber(phoneNumber: string | undefined): string {
-  const digits = phoneNumber?.replace(/\D/g, '') ?? '';
-  return digits.length >= 4 ? `••••••${digits.slice(-4)}` : 'configured agent phone';
+function createVaultEmailAuthClient() {
+  const config = getSupabasePublicConfig();
+  if (!config) throw new Error('Supabase authentication is not configured.');
+
+  return createSupabaseClient(config.url, config.anonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
+  });
+}
+
+function maskEmail(email: string): string {
+  const separator = email.lastIndexOf('@');
+  if (separator <= 0 || separator === email.length - 1) return 'your account email';
+  return `${email.slice(0, 1)}***${email.slice(separator)}`;
 }
 
 async function getActiveOrganizationContext(agentOrAdminOnly = false): Promise<{ organizationId: string; userId: string }> {
@@ -195,9 +202,7 @@ export async function requestVaultOtp(vaultId: string, field: VaultField) {
   if (typeof vaultId !== 'string' || !UUID_PATTERN.test(vaultId)) throw new Error('Vault record is required.');
   if (field !== 'username' && field !== 'password') throw new Error('Invalid credential field.');
   const { organizationId, user } = await requireOrganizationContext({ agentOrAdminOnly: true });
-  if (!user.phone || !user.phone_confirmed_at) {
-    throw new Error('Add and verify a phone number on your account before revealing credentials.');
-  }
+  if (!user.email) throw new Error('This account has no email address for verification.');
 
   const recordExists = await executeTenantQuery(organizationId, user.id, async (client) => {
     const result = await client.query(
@@ -207,28 +212,16 @@ export async function requestVaultOtp(vaultId: string, field: VaultField) {
     return result.rows.length > 0;
   });
   if (!recordExists) throw new Error('Vault record was not found or is not accessible.');
-  if (!(await reserveVaultCodeRequest(user.id))) {
-    throw new Error('A verification code was just requested. Wait 30 seconds before trying again.');
+
+  const { error } = await createVaultEmailAuthClient().auth.signInWithOtp({
+    email: user.email,
+    options: { shouldCreateUser: false },
+  });
+  if (error) {
+    throw new Error('Could not email a verification code. Check Supabase Auth email settings or wait before requesting another code.');
   }
 
-  const pin = String(randomInt(0, 1_000_000)).padStart(6, '0');
-  const expiresAt = Date.now() + VAULT_OTP_TTL_MS;
-  try {
-    await saveVaultChallenge(user.id, vaultId, field, pin);
-    await sendVaultVerificationCode(user.phone, pin);
-  } catch {
-    try {
-      await deleteVaultChallenge(user.id, vaultId);
-    } catch {
-      // The challenge key remains short-lived if Redis is unavailable during cleanup.
-    }
-    throw new Error('Could not send a verification code. Check your verified phone number or try again later.');
-  }
-
-  return {
-    destination: maskPhoneNumber(user.phone),
-    expiresAt,
-  };
+  return { destination: maskEmail(user.email) };
 }
 
 export async function verifyAndRevealCredential(vaultId: string, field: VaultField, pin: string) {
@@ -237,14 +230,18 @@ export async function verifyAndRevealCredential(vaultId: string, field: VaultFie
     throw new Error('A valid credential is required.');
   }
   if (field !== 'username' && field !== 'password') throw new Error('Invalid credential field.');
+  if (!user.email) throw new Error('This account has no email address for verification.');
 
-  const submittedCode = typeof pin === 'string' && /^\d{6}$/.test(pin) ? pin : 'invalid';
-  const result = await verifyAndConsumeVaultChallenge(user.id, vaultId, field, submittedCode);
-  if (result === 'blocked') {
-    throw new Error('Too many incorrect codes. Please wait 15 minutes before trying again.');
-  }
-  if (result !== 'verified') {
-    throw new Error('The verification code is incorrect or expired. Request a new code.');
+  const submittedCode = typeof pin === 'string' && /^\d{6}$/.test(pin) ? pin : '';
+  if (!submittedCode) throw new Error('Enter the six-digit email verification code.');
+
+  const { data: verification, error: verificationError } = await createVaultEmailAuthClient().auth.verifyOtp({
+    email: user.email,
+    token: submittedCode,
+    type: 'email',
+  });
+  if (verificationError || verification.user?.id !== user.id) {
+    throw new Error('The email code is incorrect or expired. Request a new code.');
   }
 
   const row = await executeTenantQuery(organizationId, user.id, async (client) => {
@@ -265,12 +262,6 @@ export async function verifyAndRevealCredential(vaultId: string, field: VaultFie
       vaultCredentialContext(row.client_id, row.portal_name, field)
     ),
   };
-}
-
-export async function cancelVaultOtp(vaultId: string): Promise<void> {
-  const { user } = await requireOrganizationContext({ agentOrAdminOnly: true });
-  if (typeof vaultId !== 'string' || !UUID_PATTERN.test(vaultId)) return;
-  await deleteVaultChallenge(user.id, vaultId);
 }
 
 export async function voidInvoice(invoiceId: string, reason: string) {
