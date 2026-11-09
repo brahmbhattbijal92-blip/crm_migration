@@ -77,3 +77,33 @@ export async function inviteOrganizationAgent(email: string) {
 
   return { email: normalizedEmail };
 }
+
+export async function removeOrganizationAgent(userId: string) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+    throw new Error('Select a valid organization member.');
+  }
+
+  const { organizationId, user, supabase } = await requireOrganizationContext({ adminOnly: true });
+  if (user.id === userId) throw new Error('You cannot remove your own account.');
+
+  const { data: membership, error: lookupError } = await supabase
+    .from('organization_memberships')
+    .select('role')
+    .eq('organization_id', organizationId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (lookupError) throw new Error(`Agent lookup failed: ${lookupError.message}`);
+  if (!membership || String(membership.role).toLowerCase() !== 'agent') {
+    throw new Error('Only organization agents can be removed.');
+  }
+
+  const { data: removedMemberships, error: removalError } = await supabase
+    .from('organization_memberships')
+    .delete()
+    .eq('organization_id', organizationId)
+    .eq('user_id', userId)
+    .eq('role', 'agent')
+    .select('user_id');
+  if (removalError) throw new Error(`Agent removal failed: ${removalError.message}`);
+  if (!removedMemberships?.length) throw new Error('This agent is no longer a member of the organization.');
+}

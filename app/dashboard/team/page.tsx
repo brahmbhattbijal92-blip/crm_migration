@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import React, { startTransition, useEffect, useState } from 'react';
-import { inviteOrganizationAgent, listOrganizationMembers } from './actions';
+import { inviteOrganizationAgent, listOrganizationMembers, removeOrganizationAgent } from './actions';
 
 type TeamMember = Awaited<ReturnType<typeof listOrganizationMembers>>[number];
 
@@ -11,6 +11,7 @@ export default function TeamPage() {
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isInviting, setIsInviting] = useState(false);
+  const [removingUserId, setRemovingUserId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
@@ -63,6 +64,24 @@ export default function TeamPage() {
     }
   }
 
+  async function handleRemoveAgent(member: TeamMember) {
+    const memberName = member.displayName || member.email || 'this agent';
+    if (!window.confirm(`Remove ${memberName} from this organization? They will lose access to its workspace.`)) return;
+
+    setRemovingUserId(member.userId);
+    setErrorMessage('');
+    setSuccessMessage('');
+    try {
+      await removeOrganizationAgent(member.userId);
+      setSuccessMessage(`${memberName} was removed from the organization.`);
+      await refreshMembers();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Agent could not be removed.');
+    } finally {
+      setRemovingUserId(null);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto max-w-[1000px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -107,7 +126,19 @@ export default function TeamPage() {
                   <p className="text-sm font-medium text-zinc-200">{member.displayName || member.email || 'Pending agent'}</p>
                   {member.displayName && <p className="mt-0.5 text-xs text-zinc-500">{member.email}</p>}
                 </div>
-                <span className="border border-zinc-700 px-2 py-1 text-xs uppercase text-zinc-400">{member.role}</span>
+                <div className="flex items-center gap-3">
+                  <span className="border border-zinc-700 px-2 py-1 text-xs uppercase text-zinc-400">{member.role}</span>
+                  {member.role === 'agent' && (
+                    <button
+                      type="button"
+                      disabled={removingUserId !== null}
+                      onClick={() => void handleRemoveAgent(member)}
+                      className="text-xs text-rose-300 underline underline-offset-4 hover:text-rose-200 disabled:opacity-50"
+                    >
+                      {removingUserId === member.userId ? 'Removing...' : 'Remove agent'}
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
