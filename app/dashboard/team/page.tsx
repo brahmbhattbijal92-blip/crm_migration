@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import React, { useEffect, useState } from 'react';
+import React, { startTransition, useEffect, useState } from 'react';
 import { inviteOrganizationAgent, listOrganizationMembers } from './actions';
 
 type TeamMember = Awaited<ReturnType<typeof listOrganizationMembers>>[number];
@@ -28,17 +28,19 @@ export default function TeamPage() {
 
   useEffect(() => {
     let active = true;
-    listOrganizationMembers()
-      .then((nextMembers) => {
-        if (!active) return;
-        setMembers(nextMembers);
-        setErrorMessage('');
-      })
-      .catch((error: unknown) => {
-        if (active) setErrorMessage(error instanceof Error ? error.message : 'Team members could not be loaded.');
-      })
-      .finally(() => {
-        if (active) setIsLoading(false);
+    startTransition(() => {
+      void listOrganizationMembers()
+        .then((nextMembers) => {
+          if (!active) return;
+          setMembers(nextMembers);
+          setErrorMessage('');
+        })
+        .catch((error: unknown) => {
+          if (active) setErrorMessage(error instanceof Error ? error.message : 'Team members could not be loaded.');
+        })
+        .finally(() => {
+          if (active) setIsLoading(false);
+        });
       });
 
     return () => { active = false; };
