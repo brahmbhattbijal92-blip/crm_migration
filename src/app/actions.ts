@@ -17,6 +17,8 @@ interface VaultCredentialMetadata {
   lastVerified: string;
 }
 
+const VAULT_EMAIL_OTP_LENGTH = 8;
+const VAULT_EMAIL_OTP_RESEND_COOLDOWN_MS = 60_000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function createVaultEmailAuthClient() {
@@ -218,10 +220,16 @@ export async function requestVaultOtp(vaultId: string, field: VaultField) {
     options: { shouldCreateUser: false },
   });
   if (error) {
+    if (error.status === 429 || error.code === 'over_email_send_rate_limit' || /rate limit|too many requests/i.test(error.message)) {
+      throw new Error('A verification code was requested too recently. Please wait 60 seconds before trying again.');
+    }
     throw new Error('Could not email a verification code. Check Supabase Auth email settings or wait before requesting another code.');
   }
 
-  return { destination: maskEmail(user.email) };
+  return {
+    destination: maskEmail(user.email),
+    resendAvailableAt: Date.now() + VAULT_EMAIL_OTP_RESEND_COOLDOWN_MS,
+  };
 }
 
 export async function verifyAndRevealCredential(vaultId: string, field: VaultField, pin: string) {
@@ -232,8 +240,8 @@ export async function verifyAndRevealCredential(vaultId: string, field: VaultFie
   if (field !== 'username' && field !== 'password') throw new Error('Invalid credential field.');
   if (!user.email) throw new Error('This account has no email address for verification.');
 
-  const submittedCode = typeof pin === 'string' && /^\d{6}$/.test(pin) ? pin : '';
-  if (!submittedCode) throw new Error('Enter the six-digit email verification code.');
+  const submittedCode = typeof pin === 'string' && new RegExp(`^\\d{${VAULT_EMAIL_OTP_LENGTH}}$`).test(pin) ? pin : '';
+  if (!submittedCode) throw new Error(`Enter the ${VAULT_EMAIL_OTP_LENGTH}-digit email verification code.`);
 
   const { data: verification, error: verificationError } = await createVaultEmailAuthClient().auth.verifyOtp({
     email: user.email,
@@ -255,11 +263,14 @@ export async function verifyAndRevealCredential(vaultId: string, field: VaultFie
   });
   if (!row) throw new Error('Record not found or access denied by tenant boundary protection.');
 
-  const encryptedValue = field === 'username' ? row.encrypted_username : row.encrypted_password;
   return {
-    value: decryptVaultData(
-      encryptedValue,
-      vaultCredentialContext(row.client_id, row.portal_name, field)
+    username: decryptVaultData(
+      row.encrypted_username,
+      vaultCredentialContext(row.client_id, row.portal_name, 'username')
+    ),
+    password: decryptVaultData(
+      row.encrypted_password,
+      vaultCredentialContext(row.client_id, row.portal_name, 'password')
     ),
   };
 }

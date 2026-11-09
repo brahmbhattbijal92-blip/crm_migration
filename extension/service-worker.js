@@ -44,10 +44,12 @@ function normalizeProfile(profile) {
 }
 
 function isTrustedAppSender(sender) {
-  if (!sender.url || !sender.origin) return false;
+  if (typeof sender?.origin === 'string' && sender.origin) {
+    return TRUSTED_APP_ORIGINS.has(sender.origin);
+  }
+  if (!sender?.url) return false;
   try {
-    const senderOrigin = new URL(sender.url).origin;
-    return TRUSTED_APP_ORIGINS.has(senderOrigin) && sender.origin === senderOrigin;
+    return TRUSTED_APP_ORIGINS.has(new URL(sender.url).origin);
   } catch {
     return false;
   }

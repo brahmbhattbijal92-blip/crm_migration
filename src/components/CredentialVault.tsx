@@ -21,11 +21,20 @@ interface VaultRecord {
 
 type VisibleField = 'username' | 'password';
 
+const VAULT_EMAIL_OTP_LENGTH = 8;
+const VAULT_EMAIL_OTP_RESEND_COOLDOWN_MS = 60_000;
+
 interface PendingChallenge {
   vaultId: string;
   field: VisibleField;
   portalName: string;
   destination?: string;
+}
+
+interface VerifiedCredentialPair {
+  username: string;
+  password: string;
+  expiresAt: number;
 }
 
 function EyeIcon({ visible }: { visible: boolean }) {
@@ -44,11 +53,15 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
   const [password, setPassword] = useState('');
   const [records, setRecords] = useState<VaultRecord[]>([]);
   const [revealedValues, setRevealedValues] = useState<Record<string, string>>({});
+  const [verifiedCredentialPairs, setVerifiedCredentialPairs] = useState<Record<string, VerifiedCredentialPair>>({});
   const [challenge, setChallenge] = useState<PendingChallenge | null>(null);
   const [pin, setPin] = useState('');
+  const [otpRequestAvailableAt, setOtpRequestAvailableAt] = useState(0);
+  const [resendInSeconds, setResendInSeconds] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const revealTimers = useRef(new Map<string, number>());
+  const verifiedCredentialTimers = useRef(new Map<string, number>());
+  const challengeOperation = useRef(0);
 
   useEffect(() => {
     let isCurrent = true;
@@ -68,17 +81,59 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
   }, [clientId]);
 
   useEffect(() => () => {
-    revealTimers.current.forEach((timer) => window.clearTimeout(timer));
-    revealTimers.current.clear();
+    verifiedCredentialTimers.current.forEach((timer) => window.clearTimeout(timer));
+    verifiedCredentialTimers.current.clear();
   }, []);
 
+  useEffect(() => {
+    if (!otpRequestAvailableAt) {
+      setResendInSeconds(0);
+      return;
+    }
+
+    let timer: number | undefined;
+    const updateCountdown = () => {
+      const remaining = Math.max(0, Math.ceil((otpRequestAvailableAt - Date.now()) / 1000));
+      setResendInSeconds(remaining);
+      if (remaining === 0 && timer !== undefined) window.clearInterval(timer);
+    };
+    updateCountdown();
+    if (otpRequestAvailableAt <= Date.now()) return;
+    timer = window.setInterval(updateCountdown, 1000);
+    return () => {
+      if (timer !== undefined) window.clearInterval(timer);
+    };
+  }, [otpRequestAvailableAt]);
+
+  function showOtpRequestError(error: unknown, fallback: string) {
+    const message = error instanceof Error ? error.message : fallback;
+    if (message.includes('wait 60 seconds')) {
+      setOtpRequestAvailableAt(Date.now() + VAULT_EMAIL_OTP_RESEND_COOLDOWN_MS);
+    }
+    setErrorMessage(message);
+  }
+
   function clearRevealedValue(key: string) {
-    const timer = revealTimers.current.get(key);
-    if (timer !== undefined) window.clearTimeout(timer);
-    revealTimers.current.delete(key);
     setRevealedValues((current) => {
       const next = { ...current };
       delete next[key];
+      return next;
+    });
+  }
+
+  function clearVerifiedCredentialPair(vaultId: string) {
+    const timer = verifiedCredentialTimers.current.get(vaultId);
+    if (timer !== undefined) window.clearTimeout(timer);
+    verifiedCredentialTimers.current.delete(vaultId);
+    setVerifiedCredentialPairs((current) => {
+      const next = { ...current };
+      delete next[vaultId];
+      return next;
+    });
+    setRevealedValues((current) => {
+      const next = { ...current };
+      delete next[`${vaultId}:username`];
+      delete next[`${vaultId}:password`];
       return next;
     });
   }
@@ -92,6 +147,7 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
       setErrorMessage('');
       const savedRecord = await storeVaultCredential(clientId, portalName, username, password);
       setRecords((current) => [savedRecord, ...current.filter((record) => record.id !== savedRecord.id)]);
+      clearVerifiedCredentialPair(savedRecord.id);
       clearRevealedValue(`${savedRecord.id}:username`);
       clearRevealedValue(`${savedRecord.id}:password`);
       setPortalName('');
@@ -110,13 +166,26 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
       clearRevealedValue(key);
       return;
     }
+    const verifiedPair = verifiedCredentialPairs[record.id];
+    if (verifiedPair && verifiedPair.expiresAt > Date.now()) {
+      setRevealedValues((current) => ({ ...current, [key]: verifiedPair[field] }));
+      return;
+    }
+    if (verifiedPair) clearVerifiedCredentialPair(record.id);
+    if (resendInSeconds > 0) {
+      setErrorMessage(`Please wait ${resendInSeconds} seconds before requesting another code.`);
+      return;
+    }
 
+    const operationId = ++challengeOperation.current;
     try {
       setIsProcessing(true);
       setErrorMessage('');
       setPin('');
       setChallenge({ vaultId: record.id, field, portalName: record.portalName });
       const issuedChallenge = await requestVaultOtp(record.id, field);
+      setOtpRequestAvailableAt(issuedChallenge.resendAvailableAt);
+      if (challengeOperation.current !== operationId) return;
       setChallenge({
         vaultId: record.id,
         field,
@@ -124,8 +193,31 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
         destination: issuedChallenge.destination,
       });
     } catch (error) {
+      if (challengeOperation.current !== operationId) return;
       setChallenge(null);
-      setErrorMessage(error instanceof Error ? error.message : 'Credential verification failed.');
+      showOtpRequestError(error, 'Credential verification failed.');
+    } finally {
+      setIsProcessing(false);
+    }
+  }
+
+  async function handleResendChallenge() {
+    if (!challenge || isProcessing || resendInSeconds > 0) return;
+
+    const operationId = ++challengeOperation.current;
+    try {
+      setIsProcessing(true);
+      setErrorMessage('');
+      setPin('');
+      const issuedChallenge = await requestVaultOtp(challenge.vaultId, challenge.field);
+      setOtpRequestAvailableAt(issuedChallenge.resendAvailableAt);
+      if (challengeOperation.current !== operationId) return;
+      setChallenge((current) => current && current.vaultId === challenge.vaultId && current.field === challenge.field
+        ? { ...current, destination: issuedChallenge.destination }
+        : current);
+    } catch (error) {
+      if (challengeOperation.current !== operationId) return;
+      showOtpRequestError(error, 'Could not resend the verification code.');
     } finally {
       setIsProcessing(false);
     }
@@ -133,8 +225,9 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
 
   async function handleConfirmChallenge(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!challenge?.destination || !/^\d{6}$/.test(pin)) return;
+    if (!challenge?.destination || pin.length !== VAULT_EMAIL_OTP_LENGTH) return;
 
+    const operationId = ++challengeOperation.current;
     try {
       setIsProcessing(true);
       setErrorMessage('');
@@ -143,13 +236,24 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
         challenge.field,
         pin
       );
+      if (challengeOperation.current !== operationId) return;
       const key = `${challenge.vaultId}:${challenge.field}`;
-      setRevealedValues((current) => ({ ...current, [key]: result.value }));
-      const timer = window.setTimeout(() => clearRevealedValue(key), 30_000);
-      revealTimers.current.set(key, timer);
+      clearVerifiedCredentialPair(challenge.vaultId);
+      setVerifiedCredentialPairs((current) => ({
+        ...current,
+        [challenge.vaultId]: {
+          username: result.username,
+          password: result.password,
+          expiresAt: Date.now() + 30_000,
+        },
+      }));
+      setRevealedValues((current) => ({ ...current, [key]: result[challenge.field] }));
+      const timer = window.setTimeout(() => clearVerifiedCredentialPair(challenge.vaultId), 30_000);
+      verifiedCredentialTimers.current.set(challenge.vaultId, timer);
       setChallenge(null);
       setPin('');
     } catch (error) {
+      if (challengeOperation.current !== operationId) return;
       setErrorMessage(error instanceof Error ? error.message : 'Verification failed.');
       setPin('');
     } finally {
@@ -157,9 +261,20 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
     }
   }
 
-  function closeChallenge() {
-    setChallenge(null);
-    setPin('');
+  function getPortalUrl(portalName: string): string | null {
+    try {
+      const url = new URL(portalName);
+      const credentialParameter = /^(?:user(?:name)?|email|pass(?:word)?|token|access_token|secret|otp|code)$/i;
+      if (
+        url.protocol !== 'https:' ||
+        url.username ||
+        url.password ||
+        [...url.searchParams.keys()].some((parameter) => credentialParameter.test(parameter))
+      ) return null;
+      return url.href;
+    } catch {
+      return null;
+    }
   }
 
   return (
@@ -175,13 +290,13 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
 
       <form onSubmit={handleVaultSubmit} className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
         <div>
-          <label className="block text-[11px] text-zinc-500 mb-1">Portal Application</label>
+          <label className="block text-[11px] text-zinc-500 mb-1">Portal URL / Application</label>
           <input
             type="text"
             value={portalName}
             onChange={(e) => setPortalName(e.target.value)}
             className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-emerald-500"
-            placeholder="ImmiAccount / VEVO"
+            placeholder="https://portal.example.com"
           />
         </div>
         <div>
@@ -223,9 +338,22 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
           <div key={record.id} className="space-y-3 border border-zinc-800 bg-zinc-950/50 p-3">
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm font-medium text-zinc-200">{record.portalName}</span>
-              <span className="text-xs text-zinc-500">
-                {record.lastVerified ? new Date(record.lastVerified).toLocaleDateString() : ''}
-              </span>
+              <div className="flex items-center gap-3">
+                {getPortalUrl(record.portalName) && (
+                  <a
+                    href={getPortalUrl(record.portalName)!}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-emerald-300 underline underline-offset-4 hover:text-emerald-200"
+                    aria-label={`Open ${record.portalName} in a new tab`}
+                  >
+                    Open portal
+                  </a>
+                )}
+                <span className="text-xs text-zinc-500">
+                  {record.lastVerified ? new Date(record.lastVerified).toLocaleDateString() : ''}
+                </span>
+              </div>
             </div>
             {(['username', 'password'] as const).map((field) => {
               const key = `${record.id}:${field}`;
@@ -244,7 +372,7 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
                     aria-label={`${isVisible ? 'Hide' : 'Reveal'} ${label.toLowerCase()} for ${record.portalName}`}
                     aria-pressed={isVisible}
                     title={`${isVisible ? 'Hide' : 'Reveal'} ${label.toLowerCase()}`}
-                    disabled={isProcessing}
+                    disabled={isProcessing || (!isVisible && resendInSeconds > 0 && !verifiedCredentialPairs[record.id])}
                     onClick={() => void handleToggleVisibility(record, field)}
                     className="inline-flex h-8 w-8 items-center justify-center rounded border border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-50"
                   >
@@ -270,7 +398,7 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
                 Verify before reveal
               </h3>
               <p className="text-sm text-zinc-400">
-                Enter the six-digit email code sent to {challenge.destination ?? 'your account email'} for {challenge.portalName}.
+                Enter the {VAULT_EMAIL_OTP_LENGTH}-digit email code sent to {challenge.destination ?? 'your account email'} to access both fields for {challenge.portalName} for 30 seconds.
               </p>
             </div>
 
@@ -282,40 +410,42 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
 
             <form onSubmit={handleConfirmChallenge} className="space-y-4">
               <label className="block space-y-2">
-                <span className="text-xs font-medium text-zinc-400">6-digit verification code</span>
+                <span className="text-xs font-medium text-zinc-400">{VAULT_EMAIL_OTP_LENGTH}-digit verification code</span>
                 <input
                   autoFocus
                   autoComplete="one-time-code"
                   inputMode="numeric"
-                  pattern="[0-9]{6}"
-                  maxLength={6}
+                  pattern={`[0-9]{${VAULT_EMAIL_OTP_LENGTH}}`}
+                  maxLength={VAULT_EMAIL_OTP_LENGTH}
                   required
                   value={pin}
                   onChange={(event) => {
-                    setPin(event.target.value.replace(/\D/g, '').slice(0, 6));
+                    setPin(event.target.value.replace(/\D/g, '').slice(0, VAULT_EMAIL_OTP_LENGTH));
                     setErrorMessage('');
                   }}
                   disabled={!challenge.destination || isProcessing}
                   className="w-full border border-zinc-700 bg-zinc-900 px-3 py-3 text-center font-mono text-xl tracking-[0.3em] text-zinc-100 outline-none focus:border-emerald-500"
-                  aria-label="Six-digit verification code"
+                  aria-label={`${VAULT_EMAIL_OTP_LENGTH}-digit verification code`}
                 />
               </label>
-              <div className="flex justify-end gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <button
                   type="button"
-                  onClick={closeChallenge}
-                  disabled={isProcessing}
-                  className="border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-900 disabled:opacity-50"
+                  onClick={() => void handleResendChallenge()}
+                  disabled={!challenge.destination || isProcessing || resendInSeconds > 0}
+                  className="text-sm text-emerald-300 underline underline-offset-4 hover:text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Cancel
+                  {resendInSeconds > 0 ? `Resend code in ${resendInSeconds}s` : 'Resend code'}
                 </button>
-                <button
-                  type="submit"
-                  disabled={!challenge.destination || pin.length !== 6 || isProcessing}
-                  className="bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {isProcessing ? 'Verifying...' : 'Verify and reveal'}
-                </button>
+                <div className="flex justify-end gap-3">
+                  <button
+                    type="submit"
+                    disabled={!challenge.destination || pin.length !== VAULT_EMAIL_OTP_LENGTH || isProcessing}
+                    className="bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isProcessing ? 'Verifying...' : 'Verify and reveal'}
+                  </button>
+                </div>
               </div>
             </form>
           </section>
