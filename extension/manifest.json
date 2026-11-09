@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Migration Form Assistant",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "User-initiated profile field transfer to the approved ImmiAccount portal.",
   "minimum_chrome_version": "116",
   "permissions": ["tabs", "storage"],
