@@ -30,6 +30,8 @@ Apply the migrations after configuring Supabase Auth. Owners register at `/regis
 
 `DATABASE_URL` is used by legacy PostgreSQL server actions and the credentials vault. It is not required for local dashboard client records. Vault reveal requires a six-digit OTP challenge. Development displays a simulated SMS message; it does not send a real SMS. Production reveal remains disabled until an SMS provider and durable, shared challenge storage are configured.
 
+For `DATABASE_URL` TLS errors such as `SELF_SIGNED_CERT_IN_CHAIN`, download the project's root certificate from Supabase **Project Settings → Database → SSL Configuration** and set its PEM contents as the server-only `DATABASE_SSL_CA` environment variable in Vercel. The database client uses this CA while continuing to verify the server certificate and hostname; do not disable TLS verification.
+
 ## Expiration reminder worker
 
 The `/api/cron/expiration-reminders` route is scheduled by `vercel.json` to run daily at 08:00 UTC. Configure server-only `CRON_SECRET` and `SUPABASE_SERVICE_ROLE_KEY` values in the deployment environment. The worker records idempotent simulated notifications for organization owners, admins, and agents exactly 90, 60, and 30 UTC calendar days before passport or visa expiry. It does not send email or SMS.

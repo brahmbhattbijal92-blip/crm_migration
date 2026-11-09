@@ -16,8 +16,30 @@ function getPoolMax(): number {
   return poolMax;
 }
 
+function getPoolTlsConfig(): { connectionString: string | undefined; ssl?: { ca: string; rejectUnauthorized: true } } {
+  const connectionString = process.env.DATABASE_URL;
+  const ca = process.env.DATABASE_SSL_CA?.replace(/\\n/g, '\n').trim();
+  if (!connectionString || !ca) return { connectionString };
+
+  let url: URL;
+  try {
+    url = new URL(connectionString);
+  } catch {
+    return { connectionString };
+  }
+
+  for (const parameter of ['ssl', 'sslmode', 'sslrootcert', 'sslcert', 'sslkey', 'uselibpqcompat']) {
+    url.searchParams.delete(parameter);
+  }
+
+  return {
+    connectionString: url.toString(),
+    ssl: { ca, rejectUnauthorized: true },
+  };
+}
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  ...getPoolTlsConfig(),
   max: getPoolMax(),
   connectionTimeoutMillis: 10_000,
   idleTimeoutMillis: 30_000,
