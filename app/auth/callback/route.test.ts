@@ -45,4 +45,14 @@ describe('Supabase auth callback', () => {
     expect(authMethods.verifyOtp).not.toHaveBeenCalled();
     expect(response.headers.get('location')).toBe('https://crm-migration-three.vercel.app/auth/complete?next=%2Fdashboard');
   });
+
+  it('marks a server-verified reactivation callback for the completion page', async () => {
+    const next = encodeURIComponent('/auth/complete?flow=reactivation&organization_id=123e4567-e89b-12d3-a456-426614174000');
+    const response = await GET(makeRequest(`?code=test-code&next=${next}`));
+    const destination = new URL(response.headers.get('location')!);
+
+    expect(destination.pathname).toBe('/auth/complete');
+    expect(destination.searchParams.get('flow')).toBe('reactivation');
+    expect(destination.searchParams.get('verified')).toBe('1');
+  });
 });

@@ -46,12 +46,14 @@ export async function requireOrganizationContext(options: { adminOnly?: boolean;
     .eq('user_id', userResult.user.id)
     .single();
   if (membershipError || !membership) throw new Error('You are not a member of this organization.');
-  if (options.adminOnly && !['owner', 'admin'].includes(String(membership.role))) {
+  const role = String(membership.role);
+  if (role === 'inactive') throw new Error('Your organization membership is inactive.');
+  if (options.adminOnly && !['owner', 'admin'].includes(role)) {
     throw new Error('Organization owner or admin access is required.');
   }
-  if (options.agentOrAdminOnly && !['owner', 'admin', 'agent'].includes(String(membership.role))) {
+  if (options.agentOrAdminOnly && !['owner', 'admin', 'agent'].includes(role)) {
     throw new Error('Agent or administrator access is required.');
   }
 
-  return { supabase, user: userResult.user, organizationId, role: String(membership.role) };
+  return { supabase, user: userResult.user, organizationId, role };
 }

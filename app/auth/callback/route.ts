@@ -17,7 +17,11 @@ export async function GET(request: NextRequest) {
     const { error } = code
       ? await supabase.auth.exchangeCodeForSession(code)
       : await supabase.auth.verifyOtp({ token_hash: tokenHash!, type: otpType! });
-    if (!error) return NextResponse.redirect(new URL(nextPath, request.url));
+    if (!error) {
+      const destination = new URL(nextPath, request.url);
+      if (destination.pathname === '/auth/complete') destination.searchParams.set('verified', '1');
+      return NextResponse.redirect(destination);
+    }
     console.error('Supabase auth callback verification failed:', { code: error.code, message: error.message });
   }
 

@@ -250,6 +250,10 @@ otp_expiry = 3600
 subject = "Your CRM Migration invitation code"
 content_path = "./supabase/templates/invite.html"
 
+[auth.email.template.magic_link]
+subject = "Your CRM Migration verification code"
+content_path = "./supabase/templates/magic_link.html"
+
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]
 # enabled = true

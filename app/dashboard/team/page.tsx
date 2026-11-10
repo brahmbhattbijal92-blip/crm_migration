@@ -2,7 +2,12 @@
 
 import Link from 'next/link';
 import React, { startTransition, useEffect, useState } from 'react';
-import { inviteOrganizationAgent, listOrganizationMembers, setOrganizationAgentActive } from './actions';
+import {
+  deactivateOrganizationAgent,
+  inviteOrganizationAgent,
+  listOrganizationMembers,
+  requestOrganizationAgentReactivation,
+} from './actions';
 
 type TeamMember = Awaited<ReturnType<typeof listOrganizationMembers>>[number];
 
@@ -62,11 +67,12 @@ export default function TeamPage() {
           setErrorMessage('This person is already an owner or administrator in the organization.');
         } else if (invitation.status === 'already-active') {
           setErrorMessage('This person is already an active agent in the organization.');
+        } else if (invitation.status === 'reactivation-email-sent') {
+          setSuccessMessage(`Reactivation email sent to ${invitation.email}.`);
         } else {
           const messages = {
             invited: `Agent invitation sent to ${invitation.email}.`,
             added: `Existing account ${invitation.email} was added as an agent.`,
-            reactivated: `Existing account ${invitation.email} was reactivated as an agent.`,
           };
           setSuccessMessage(messages[invitation.status]);
           await refreshMembers();
@@ -83,7 +89,7 @@ export default function TeamPage() {
     const memberName = member.displayName || member.email || 'this agent';
     const isActive = member.role === 'inactive';
     const confirmation = isActive
-      ? `Reactivate ${memberName} in this organization?`
+      ? `Send a reactivation email to ${member.email || memberName}? They will regain access after verifying the code.`
       : `Deactivate ${memberName}? They will lose access, but their membership and records will be retained.`;
     if (!window.confirm(confirmation)) return;
 
@@ -92,9 +98,14 @@ export default function TeamPage() {
     setSuccessMessage('');
     startTransition(async () => {
       try {
-        await setOrganizationAgentActive(member.userId, isActive);
-        setSuccessMessage(`${memberName} was ${isActive ? 'reactivated' : 'deactivated'} in the organization.`);
-        await refreshMembers();
+        if (isActive) {
+          const result = await requestOrganizationAgentReactivation(member.userId);
+          setSuccessMessage(`Reactivation email sent to ${result.email}.`);
+        } else {
+          await deactivateOrganizationAgent(member.userId);
+          setSuccessMessage(`${memberName} was deactivated in the organization.`);
+          await refreshMembers();
+        }
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : 'Agent status could not be changed.');
       } finally {
@@ -157,8 +168,8 @@ export default function TeamPage() {
                       className="text-xs text-rose-300 underline underline-offset-4 hover:text-rose-200 disabled:opacity-50"
                     >
                       {removingUserId === member.userId
-                        ? (member.role === 'inactive' ? 'Reactivating...' : 'Deactivating...')
-                        : (member.role === 'inactive' ? 'Reactivate agent' : 'Deactivate agent')}
+                        ? (member.role === 'inactive' ? 'Sending email...' : 'Deactivating...')
+                        : (member.role === 'inactive' ? 'Send reactivation email' : 'Deactivate agent')}
                     </button>
                   )}
                 </div>
