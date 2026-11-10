@@ -41,7 +41,7 @@ export default function RegisterPage() {
       if (data.user?.identities?.length === 0) {
         setIsExistingAccount(true);
         setCanResendConfirmation(true);
-        setSuccessMessage('An account with this email already exists. Sign in instead. If an owner deactivated your organization access, ask them to send a reactivation email from Team.');
+        setSuccessMessage('An account with this email already exists. If you have not confirmed your email yet, click “Resend confirmation email” below. If you have already confirmed it, choose “Go to sign in.” If you forgot your password, use “Forgot password?” on the sign-in page. If an owner deactivated your organization access, ask them to send a reactivation email from Team.');
         return;
       }
       if (data.session) {
