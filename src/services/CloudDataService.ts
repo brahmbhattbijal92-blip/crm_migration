@@ -95,22 +95,12 @@ async function removeUploadedObject(
 }
 
 async function getActiveOrganizationId(supabase: ReturnType<typeof getSupabaseClient>): Promise<string> {
-  const { data: userResult, error: userError } = await supabase.auth.getUser();
-  if (userError || !userResult.user) {
-    throw new DataServiceError('Sign in before using Cloud storage.', 'CLOUD_AUTH_REQUIRED', 'WARNING', userError);
+  const { data, error } = await supabase.rpc('get_current_organization_id');
+  if (error) throwSupabaseError(error, 'organization lookup');
+  if (!data) {
+    throw new DataServiceError('Join an active organization before using Cloud storage.', 'CLOUD_ORGANIZATION_REQUIRED', 'WARNING');
   }
-
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('default_organization_id')
-    .eq('user_id', userResult.user.id)
-    .single();
-  if (profileError) throwSupabaseError(profileError, 'organization lookup');
-  if (!profile?.default_organization_id) {
-    throw new DataServiceError('Join an organization before using Cloud storage.', 'CLOUD_ORGANIZATION_REQUIRED', 'WARNING');
-  }
-
-  return String(profile.default_organization_id);
+  return String(data);
 }
 
 export class CloudDataService extends DataService {

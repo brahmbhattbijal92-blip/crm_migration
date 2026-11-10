@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import CredentialVault from '../../src/components/CredentialVault';
 import AuthStatus from '../../src/components/AuthStatus';
+import GlobalPageSearch from '../../src/components/GlobalPageSearch';
 import { assignClientToAgent, listClientAssignmentAgents } from './client-assignment-actions';
 import {
   ClientActionHub,
@@ -153,13 +154,13 @@ function DashboardContent() {
   const [documentSuccessMessage, setDocumentSuccessMessage] = useState('');
   const [errorFocusVersion, setErrorFocusVersion] = useState(0);
   const [isDashboardLoading, setIsDashboardLoading] = useState(true);
-  const [isSelectedClientLoading, setIsSelectedClientLoading] = useState(false);
   const errorAlertRef = useRef<HTMLDivElement>(null);
 
   const visibleClients = showArchivedClients ? archivedClients : clients;
   const selectedClient = [...clients, ...archivedClients].find((client) => client.id === selectedClientId) ?? null;
   const selectedClientDataKey = selectedClientId ? `${preference}:${selectedClientId}` : '';
   const selectedClientDataReady = Boolean(selectedClientDataKey) && loadedClientDataKey === selectedClientDataKey;
+  const isSelectedClientLoading = Boolean(selectedClientDataKey) && !selectedClientDataReady;
 
   useEffect(() => {
     const timer = window.setTimeout(() => setPurgeReferenceTime(Date.now()), 0);
@@ -187,7 +188,13 @@ function DashboardContent() {
     const confirmed = window.confirm(
       `Switch from ${current} to ${destination}? These storage locations are separate. Existing records will remain where they are and will not be copied.`
     );
-    if (confirmed) void updateStoragePreference(nextPreference);
+    if (confirmed) {
+      if (nextPreference === 'local') {
+        setAssignmentAgents([]);
+        setCanAssignClients(false);
+      }
+      void updateStoragePreference(nextPreference);
+    }
   }
 
   useEffect(() => {
@@ -223,11 +230,7 @@ function DashboardContent() {
   }, [appliedClientSearchTerm, clientSearchField, dataService, isReady]);
 
   useEffect(() => {
-    if (!isReady || preference !== 'cloud') {
-      setAssignmentAgents([]);
-      setCanAssignClients(false);
-      return;
-    }
+    if (!isReady || preference !== 'cloud') return;
 
     let active = true;
     void listClientAssignmentAgents()
@@ -246,11 +249,9 @@ function DashboardContent() {
     if (!isReady) return;
     let active = true;
     if (!selectedClientId) {
-      setIsSelectedClientLoading(false);
       return () => { active = false; };
     }
 
-    setIsSelectedClientLoading(true);
     async function loadSelectedClientData() {
       try {
         const [documentPage, invoicePage, grantPage, balances, summary] = await Promise.all([
@@ -273,7 +274,7 @@ function DashboardContent() {
       } catch (error) {
         if (active) setErrorMessage(error instanceof Error ? error.message : 'Selected client data could not be loaded.');
       } finally {
-        if (active) setIsSelectedClientLoading(false);
+        if (active) setLoadedClientDataKey(`${preference}:${selectedClientId}`);
       }
     }
     void loadSelectedClientData();
@@ -674,6 +675,9 @@ function DashboardContent() {
             onModeChange={handleStoragePreferenceChange}
             cloudDisabled={!isCloudStorageConfigured}
           />
+          <div className="w-full max-w-[420px] lg:flex-1">
+            <GlobalPageSearch />
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link href="/dashboard/data-lifecycle" className="border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900">Data lifecycle</Link>
             <AuthStatus />
@@ -791,7 +795,7 @@ function DashboardContent() {
 
         <div className="grid grid-cols-1 items-start gap-6">
           <div className="space-y-6">
-            <section className="border border-zinc-800 bg-zinc-900/40">
+            <section id="client-profile" className="border border-zinc-800 bg-zinc-900/40">
               <div className="border-b border-zinc-800 px-5 py-4">
                 <h2 className="text-base font-semibold">Client profile</h2>
                 <p className="mt-1 text-xs text-zinc-500">Create or update migration client metadata.</p>
@@ -884,7 +888,7 @@ function DashboardContent() {
               </form>
             </section>
 
-            <section className="border border-zinc-800 bg-zinc-900/40">
+            <section id="document-staging" className="border border-zinc-800 bg-zinc-900/40">
               <div className="border-b border-zinc-800 px-5 py-4">
                 <h2 className="text-base font-semibold">Document staging</h2>
                 <p className="mt-1 text-xs text-zinc-500">File contents go to the local folder or private cloud bucket.</p>
@@ -936,7 +940,7 @@ function DashboardContent() {
               </div>
             </section>
 
-            <section className="border border-zinc-800 bg-zinc-900/40">
+            <section id="financial-monitoring" className="border border-zinc-800 bg-zinc-900/40">
               <div className="border-b border-zinc-800 px-5 py-4">
                 <h2 className="text-base font-semibold">Financial monitoring</h2>
               </div>
@@ -1157,7 +1161,7 @@ function DashboardContent() {
           </div>
 
           <div className="space-y-6">
-            <section className="border border-zinc-800 bg-zinc-900/40">
+            <section id="staged-documents" className="border border-zinc-800 bg-zinc-900/40">
               <div className="border-b border-zinc-800 px-5 py-4">
                 <h2 className="text-base font-semibold">Staged documents</h2>
                 <p className="mt-1 text-xs text-zinc-500">
@@ -1191,7 +1195,7 @@ function DashboardContent() {
             </section>
 
             {selectedClient && (
-              <section className="border border-zinc-800 bg-zinc-900/40">
+              <section id="credentials-vault" className="border border-zinc-800 bg-zinc-900/40">
                 <div className="border-b border-zinc-800 px-5 py-4">
                   <h2 className="text-base font-semibold">Credentials vault</h2>
                   <p className="mt-1 text-xs text-zinc-500">Vault passwords stay masked until security verification succeeds.</p>
@@ -1210,7 +1214,7 @@ function DashboardContent() {
               </section>
             )}
 
-            <section className="border border-zinc-800 bg-zinc-900/40">
+            <section id="data-governance" className="border border-zinc-800 bg-zinc-900/40">
               <div className="border-b border-zinc-800 px-5 py-4">
                 <h2 className="text-base font-semibold">Purge and data governance</h2>
                 <p className="mt-1 text-xs text-zinc-500">Expiry reminders run daily at 08:00 UTC for 90, 60, and 30 days.</p>

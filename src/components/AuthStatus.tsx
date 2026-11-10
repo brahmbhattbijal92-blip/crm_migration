@@ -13,21 +13,23 @@ export default function AuthStatus() {
 
   useEffect(() => {
     let active = true;
+    let roleRequest = 0;
     try {
       const supabase = getSupabaseClient();
       const { data } = supabase.auth.onAuthStateChange((_event, session) => {
         const user = session?.user;
         setEmail(user?.email ?? '');
         setCanManageTeam(false);
+        const requestId = ++roleRequest;
         if (!user) return;
 
         window.setTimeout(() => {
           void getCurrentOrganizationRole()
             .then((role) => {
-              if (active) setCanManageTeam(role === 'owner');
+              if (active && requestId === roleRequest) setCanManageTeam(role === 'owner');
             })
             .catch(() => {
-              if (active) setCanManageTeam(false);
+              if (active && requestId === roleRequest) setCanManageTeam(false);
             });
         }, 0);
       });
@@ -36,7 +38,8 @@ export default function AuthStatus() {
         data.subscription.unsubscribe();
       };
     } catch {
-      return () => { active = false; };
+      active = false;
+      return undefined;
     }
   }, []);
 

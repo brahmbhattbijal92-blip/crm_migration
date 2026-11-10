@@ -545,17 +545,10 @@ function throwSupabaseError(error: { message: string; code?: string }, operation
 
 async function getActiveOrganizationId(): Promise<string> {
   const supabase = getSupabaseClient();
-  const { data: userResult, error: userError } = await supabase.auth.getUser();
-  if (userError || !userResult.user) throw new Error('Sign in before using cloud storage.');
-
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('default_organization_id')
-    .eq('user_id', userResult.user.id)
-    .single();
+  const { data, error } = await supabase.rpc('get_current_organization_id');
   if (error) throwSupabaseError(error, 'organization lookup');
-  if (!data.default_organization_id) throw new Error('Your profile has no default organization.');
-  return String(data.default_organization_id);
+  if (!data) throw new Error('Join an active organization before using cloud storage.');
+  return String(data);
 }
 
 class IndexedDbDataService implements IDataService {

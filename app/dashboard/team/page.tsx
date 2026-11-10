@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import React, { startTransition, useEffect, useState } from 'react';
+import GlobalPageSearch from '../../../src/components/GlobalPageSearch';
 import {
   deactivateOrganizationAgent,
   inviteOrganizationAgent,
@@ -166,16 +167,21 @@ export default function TeamPage() {
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto max-w-[1000px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-        <header className="border-b border-zinc-800 pb-5">
-          <Link href="/dashboard" className="text-xs text-zinc-500 hover:text-zinc-200">Dashboard</Link>
-          <p className="mt-3 text-xs font-semibold uppercase text-emerald-400">Organization</p>
-          <h1 className="mt-1 text-2xl font-semibold">Team access</h1>
+        <header className="flex flex-col justify-between gap-5 border-b border-zinc-800 pb-5 sm:flex-row sm:items-end">
+          <div>
+            <Link href="/dashboard" className="text-xs text-zinc-500 hover:text-zinc-200">Dashboard</Link>
+            <p className="mt-3 text-xs font-semibold uppercase text-emerald-400">Organization</p>
+            <h1 className="mt-1 text-2xl font-semibold">Team access</h1>
+          </div>
+          <div className="w-full max-w-md">
+            <GlobalPageSearch />
+          </div>
         </header>
 
         {errorMessage && <p role="alert" className="border border-rose-900 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">{errorMessage}</p>}
         {successMessage && <p role="status" className="border border-emerald-900 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-200">{successMessage}</p>}
 
-        <section className="border border-zinc-800 bg-zinc-900/40">
+        <section id="invite-agent" className="border border-zinc-800 bg-zinc-900/40">
           <div className="border-b border-zinc-800 px-5 py-4">
             <h2 className="text-base font-semibold">Invite migration agent</h2>
             <p className="mt-1 text-xs text-zinc-500">Agents receive access to this organization after accepting their email invitation.</p>
@@ -191,7 +197,7 @@ export default function TeamPage() {
           </form>
         </section>
 
-        <section className="border border-zinc-800 bg-zinc-900/40">
+        <section id="organization-members" className="border border-zinc-800 bg-zinc-900/40">
           <div className="border-b border-zinc-800 px-5 py-4">
             <h2 className="text-base font-semibold">Organization members</h2>
             <p className="mt-1 text-xs text-zinc-500">{activeMembers.length} members</p>
@@ -238,7 +244,7 @@ export default function TeamPage() {
         </section>
 
         {removedMembers.length > 0 && (
-          <section className="border border-zinc-800 bg-zinc-900/40">
+          <section id="removed-agents" className="border border-zinc-800 bg-zinc-900/40">
             <div className="border-b border-zinc-800 px-5 py-4">
               <h2 className="text-base font-semibold">Removed agents</h2>
               <p className="mt-1 text-xs text-zinc-500">Restore original accounts within 30 days. If an account no longer exists, send a secure replacement invitation.</p>

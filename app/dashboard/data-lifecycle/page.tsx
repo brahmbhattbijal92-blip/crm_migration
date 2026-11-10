@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import GlobalPageSearch from '../../../src/components/GlobalPageSearch';
 import {
   DashboardStorageProvider,
   useDashboardStorage,
@@ -77,6 +78,7 @@ function DataLifecycleContent() {
   const [inactiveDays, setInactiveDays] = useState<number>(90);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [loadedDataService, setLoadedDataService] = useState<typeof dataService | null>(null);
+  const [loadedQueryKey, setLoadedQueryKey] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasMoreAccounts, setHasMoreAccounts] = useState(false);
   const [isLoadingMoreAccounts, setIsLoadingMoreAccounts] = useState(false);
@@ -89,7 +91,8 @@ function DataLifecycleContent() {
   const [pendingPurgeIds, setPendingPurgeIds] = useState<string[]>([]);
   const [pendingAttachmentCount, setPendingAttachmentCount] = useState(0);
   const [showPurgeConfirmation, setShowPurgeConfirmation] = useState(false);
-  const isLoading = loadedDataService !== dataService || isRefreshing;
+  const queryKey = JSON.stringify([appliedSearchTerm, searchField]);
+  const isLoading = loadedDataService !== dataService || loadedQueryKey !== queryKey || isRefreshing;
 
   const inactiveAccounts = useMemo(
     () => getInactiveAccounts(accounts, inactiveDays, referenceTime),
@@ -141,8 +144,6 @@ function DataLifecycleContent() {
 
   useEffect(() => {
     let active = true;
-    setIsRefreshing(true);
-    setSelectedIds(new Set());
     dataService.listClientPage(false, 0, CLIENT_PAGE_SIZE, appliedSearchTerm, searchField)
       .then((page) => {
         if (!active) return;
@@ -154,18 +155,18 @@ function DataLifecycleContent() {
         setLastRefreshed(refreshedAt.toISOString());
         setErrorMessage('');
         setLoadedDataService(dataService);
+        setLoadedQueryKey(queryKey);
       })
       .catch((error: unknown) => {
         if (active) {
           setErrorMessage(error instanceof Error ? error.message : 'Inactive accounts could not be loaded.');
           setLoadedDataService(dataService);
+          setLoadedQueryKey(queryKey);
         }
       })
-      .finally(() => {
-        if (active) setIsRefreshing(false);
-      });
+      .finally(() => undefined);
     return () => { active = false; };
-  }, [appliedSearchTerm, dataService, searchField]);
+  }, [appliedSearchTerm, dataService, queryKey, searchField]);
 
   const toggleAccount = useCallback((id: string) => {
     setSelectedIds((current) => {
@@ -288,6 +289,9 @@ function DataLifecycleContent() {
             <p className="mt-1 text-sm text-zinc-500">Review baseline activity before taking lifecycle action.</p>
           </div>
           <div className="flex flex-wrap items-end gap-3">
+            <div className="w-full max-w-md">
+              <GlobalPageSearch />
+            </div>
             <label className="space-y-1.5">
               <span className="block text-xs text-zinc-400">Search accounts</span>
               <input

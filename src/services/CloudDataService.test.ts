@@ -120,10 +120,6 @@ describe('CloudDataService fetch operations', () => {
   it('uploads documents under the tenant/client path and saves metadata to documents', async () => {
     const organizationId = 'c5a1970a-cf77-448a-8e15-88f0d7b6a355';
     const clientId = '9ba6bd8b-f238-4efb-9200-7405eebfd6c7';
-    const profileQuery = createQuery({
-      data: { default_organization_id: organizationId },
-      error: null,
-    });
     const documentQuery = createQuery({
       data: {
         id: 'document-1',
@@ -145,8 +141,11 @@ describe('CloudDataService fetch operations', () => {
       auth: {
         getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null }),
       },
-      rpc: vi.fn().mockResolvedValue({ data: null, error: null }),
-      from: vi.fn((table: string) => table === 'profiles' ? profileQuery : documentQuery),
+      rpc: vi.fn((functionName: string) => Promise.resolve({
+        data: functionName === 'get_current_organization_id' ? organizationId : null,
+        error: null,
+      })),
+      from: vi.fn().mockReturnValue(documentQuery),
       storage: { from: vi.fn(() => ({ upload, createSignedUrl, remove })) },
     };
     getSupabaseClientMock.mockReturnValue(supabase);
@@ -159,6 +158,7 @@ describe('CloudDataService fetch operations', () => {
     const [objectPath] = upload.mock.calls[0] as [string];
     const insertedMetadata = documentQuery.insert.mock.calls[0][0] as Record<string, unknown>;
     expect(objectPath).toBe(`${organizationId}/${clientId}/${insertedMetadata.id}`);
+    expect(supabase.rpc).toHaveBeenCalledWith('get_current_organization_id');
     expect(supabase.rpc).toHaveBeenCalledWith('assert_client_document_uploadable', {
       requested_client_id: clientId,
     });
@@ -179,20 +179,12 @@ describe('CloudDataService fetch operations', () => {
 
   it('rejects a locked client before uploading any bytes', async () => {
     const organizationId = 'c5a1970a-cf77-448a-8e15-88f0d7b6a355';
-    const profileQuery = createQuery({
-      data: { default_organization_id: organizationId },
-      error: null,
-    });
     const upload = vi.fn();
     const supabase = {
-      auth: {
-        getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null }),
-      },
-      rpc: vi.fn().mockResolvedValue({
-        data: null,
-        error: { code: '55000', message: 'Client is locked.' },
-      }),
-      from: vi.fn().mockReturnValue(profileQuery),
+      rpc: vi.fn((functionName: string) => Promise.resolve(functionName === 'get_current_organization_id'
+        ? { data: organizationId, error: null }
+        : { data: null, error: { code: '55000', message: 'Client is locked.' } })),
+      from: vi.fn(),
       storage: { from: vi.fn(() => ({ upload })) },
     };
     getSupabaseClientMock.mockReturnValue(supabase);
@@ -210,10 +202,6 @@ describe('CloudDataService fetch operations', () => {
   it('retries object deletion when metadata creation fails', async () => {
     const organizationId = 'c5a1970a-cf77-448a-8e15-88f0d7b6a355';
     const clientId = '9ba6bd8b-f238-4efb-9200-7405eebfd6c7';
-    const profileQuery = createQuery({
-      data: { default_organization_id: organizationId },
-      error: null,
-    });
     const documentQuery = createQuery({
       data: null,
       error: { code: '42501', message: 'metadata insert failed' },
@@ -226,8 +214,11 @@ describe('CloudDataService fetch operations', () => {
       auth: {
         getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null }),
       },
-      rpc: vi.fn().mockResolvedValue({ data: null, error: null }),
-      from: vi.fn((table: string) => table === 'profiles' ? profileQuery : documentQuery),
+      rpc: vi.fn((functionName: string) => Promise.resolve({
+        data: functionName === 'get_current_organization_id' ? organizationId : null,
+        error: null,
+      })),
+      from: vi.fn().mockReturnValue(documentQuery),
       storage: { from: vi.fn(() => ({
         upload,
         createSignedUrl: vi.fn().mockResolvedValue({

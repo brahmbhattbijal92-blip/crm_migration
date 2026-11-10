@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import React, { useCallback, useEffect, useState } from 'react';
+import GlobalPageSearch from '../../../src/components/GlobalPageSearch';
 import {
   ARCHIVE_RETENTION_DAYS,
   DashboardStorageProvider,
@@ -84,6 +85,7 @@ function ArchivedClientsContent() {
   const [appliedSearchTerm, setAppliedSearchTerm] = useState('');
   const [searchField, setSearchField] = useState<ClientSearchField>('all');
   const [loadedDataService, setLoadedDataService] = useState<typeof dataService | null>(null);
+  const [loadedQueryKey, setLoadedQueryKey] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -95,7 +97,8 @@ function ArchivedClientsContent() {
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [purgeReferenceTime, setPurgeReferenceTime] = useState<number | null>(null);
-  const isLoading = loadedDataService !== dataService || isRefreshing;
+  const queryKey = JSON.stringify([appliedSearchTerm, searchField]);
+  const isLoading = loadedDataService !== dataService || loadedQueryKey !== queryKey || isRefreshing;
 
   useEffect(() => {
     const timer = window.setTimeout(() => setPurgeReferenceTime(Date.now()), 0);
@@ -142,7 +145,6 @@ function ArchivedClientsContent() {
 
   useEffect(() => {
     let active = true;
-    setIsRefreshing(true);
     dataService.listClientPage(true, 0, CLIENT_PAGE_SIZE, appliedSearchTerm, searchField)
       .then((page) => {
         if (active) {
@@ -150,19 +152,19 @@ function ArchivedClientsContent() {
           setHasMore(page.hasMore);
           setPurgeReferenceTime(Date.now());
           setLoadedDataService(dataService);
+          setLoadedQueryKey(queryKey);
         }
       })
       .catch((error: unknown) => {
         if (active) {
           setErrorMessage(error instanceof Error ? error.message : 'Archived clients could not be loaded.');
           setLoadedDataService(dataService);
+          setLoadedQueryKey(queryKey);
         }
       })
-      .finally(() => {
-        if (active) setIsRefreshing(false);
-      });
+      .finally(() => undefined);
     return () => { active = false; };
-  }, [appliedSearchTerm, dataService, searchField]);
+  }, [appliedSearchTerm, dataService, queryKey, searchField]);
 
   const restoreClient = useCallback(async (client: ClientRecord) => {
     setRestoringId(client.id);
@@ -239,7 +241,10 @@ function ArchivedClientsContent() {
             <h1 className="mt-1 text-2xl font-semibold">Archived clients</h1>
             <p className="mt-1 text-sm text-zinc-500">Archived records remain stored until securely purged.</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
+            <div className="w-full sm:w-64">
+              <GlobalPageSearch />
+            </div>
             <label>
               <span className="sr-only">Search archived clients</span>
               <input
