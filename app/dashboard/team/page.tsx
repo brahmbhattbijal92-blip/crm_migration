@@ -8,6 +8,7 @@ import {
   inviteOrganizationAgent,
   listOrganizationMembers,
   removeOrganizationAgent,
+  permanentlyRemoveOrganizationAgent,
   restoreOrganizationAgent,
   requestOrganizationAgentReactivation,
 } from './actions';
@@ -164,6 +165,26 @@ export default function TeamPage() {
     });
   }
 
+  function handlePermanentlyRemoveAgent(member: TeamMember) {
+    const memberName = member.displayName || member.email || 'this agent';
+    if (!window.confirm(`Permanently remove ${memberName} from this organization? They will no longer be recoverable or have organization access. Their Supabase account and historical records will remain. This cannot be undone.`)) return;
+
+    setRemovingUserId(member.userId);
+    setErrorMessage('');
+    setSuccessMessage('');
+    startTransition(async () => {
+      try {
+        await permanentlyRemoveOrganizationAgent(member.userId);
+        setSuccessMessage(`${memberName} was permanently removed from this organization. Their account and historical records were kept.`);
+        await refreshMembers();
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Agent could not be permanently removed.');
+      } finally {
+        setRemovingUserId(null);
+      }
+    });
+  }
+
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto max-w-[1000px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -257,14 +278,24 @@ export default function TeamPage() {
                     {member.displayName && <p className="mt-0.5 text-xs text-zinc-500">{member.email}</p>}
                     <p className="mt-1 text-xs text-zinc-500">Removed {member.removedAt ? new Date(member.removedAt).toLocaleDateString() : 'date unavailable'}</p>
                   </div>
-                  <button
-                    type="button"
-                    disabled={removingUserId !== null || !member.recoveryId}
-                    onClick={() => handleRestoreAgent(member)}
-                    className="text-xs text-emerald-300 underline underline-offset-4 hover:text-emerald-200 disabled:opacity-50"
-                  >
-                    {removingUserId === member.userId ? 'Recovering...' : 'Restore / re-invite'}
-                  </button>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      disabled={removingUserId !== null || !member.recoveryId}
+                      onClick={() => handleRestoreAgent(member)}
+                      className="text-xs text-emerald-300 underline underline-offset-4 hover:text-emerald-200 disabled:opacity-50"
+                    >
+                      {removingUserId === member.userId ? 'Recovering...' : 'Restore / re-invite'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={removingUserId !== null}
+                      onClick={() => handlePermanentlyRemoveAgent(member)}
+                      className="text-xs text-rose-300 underline underline-offset-4 hover:text-rose-200 disabled:opacity-50"
+                    >
+                      {removingUserId === member.userId ? 'Removing permanently...' : 'Permanently remove'}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

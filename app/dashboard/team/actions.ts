@@ -438,6 +438,66 @@ export async function restoreOrganizationAgent(recoveryId: string) {
   return { email: String(recovery.email), status: 'restored' as const };
 }
 
+export async function permanentlyRemoveOrganizationAgent(userId: string) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+    throw new Error('Select a valid removed agent.');
+  }
+
+  const { organizationId, user } = await requireOrganizationContext({ ownerOnly: true });
+  if (user.id === userId) throw new Error('You cannot remove your own account.');
+
+  const admin = createSupabaseAdminClient();
+  const { data: membership, error: membershipError } = await admin
+    .from('organization_memberships')
+    .select('role, removed_at')
+    .eq('organization_id', organizationId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (membershipError) throw new Error(`Agent lookup failed: ${membershipError.message}`);
+  if (membership && (membership.role !== 'inactive' || !membership.removed_at)) {
+    throw new Error('Only removed agents can be permanently removed.');
+  }
+
+  const { data: removals, error: removalsError } = await admin
+    .from('organization_agent_removals')
+    .select('id')
+    .eq('organization_id', organizationId)
+    .eq('original_user_id', userId)
+    .is('restored_at', null)
+    .is('reinvited_at', null);
+  if (removalsError) throw new Error(`Agent recovery lookup failed: ${removalsError.message}`);
+  if (!membership && !removals?.length) throw new Error('This removed agent is no longer available. Refresh and try again.');
+
+  if (membership) {
+    const { data: deletedMemberships, error: deleteMembershipError } = await admin
+      .from('organization_memberships')
+      .delete()
+      .eq('organization_id', organizationId)
+      .eq('user_id', userId)
+      .eq('role', 'inactive')
+      .eq('removed_at', membership.removed_at)
+      .select('user_id');
+    if (deleteMembershipError) throw new Error(`Agent membership could not be permanently removed: ${deleteMembershipError.message}`);
+    if (!deletedMemberships?.length) throw new Error('Agent membership changed before it could be removed. Refresh and try again.');
+  }
+
+  const { error: profileError } = await admin
+    .from('profiles')
+    .update({ default_organization_id: null })
+    .eq('user_id', userId)
+    .eq('default_organization_id', organizationId);
+  if (profileError) throw new Error(`Agent organization preference could not be cleared: ${profileError.message}`);
+
+  const { error: deleteRemovalsError } = await admin
+    .from('organization_agent_removals')
+    .delete()
+    .eq('organization_id', organizationId)
+    .eq('original_user_id', userId)
+    .is('restored_at', null)
+    .is('reinvited_at', null);
+  if (deleteRemovalsError) throw new Error(`Agent recovery record could not be permanently removed: ${deleteRemovalsError.message}`);
+}
+
 export async function completeOrganizationAgentReactivation(organizationId: string) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(organizationId)) {
     throw new Error('The reactivation organization is invalid.');
