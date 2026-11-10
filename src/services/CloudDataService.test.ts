@@ -56,6 +56,27 @@ function mockSupabaseResult(result: SupabaseResult) {
   return { from, query };
 }
 
+function mockSearchSupabaseResult(result: SupabaseResult, role = 'owner') {
+  const profileQuery = createQuery({
+    data: { default_organization_id: 'organization-1' },
+    error: null,
+  });
+  const membershipQuery = createQuery({ data: { role }, error: null });
+  const clientQuery = createQuery(result);
+  const from = vi.fn((table: string) => {
+    if (table === 'profiles') return profileQuery;
+    if (table === 'organization_memberships') return membershipQuery;
+    return clientQuery;
+  });
+  getSupabaseClientMock.mockReturnValue({
+    auth: {
+      getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null }),
+    },
+    from,
+  });
+  return { from, clientQuery };
+}
+
 describe('CloudDataService fetch operations', () => {
   const service = new CloudDataService();
 
@@ -251,7 +272,7 @@ describe('CloudDataService fetch operations', () => {
 
   it('converts search failures to DataServiceError with the Supabase error attached', async () => {
     const supabaseError = { message: 'permission denied', code: '42501' };
-    mockSupabaseResult({ data: null, error: supabaseError, count: null });
+    mockSearchSupabaseResult({ data: null, error: supabaseError, count: null });
 
     const result = service.searchRecords({ term: 'Ada', limit: 25 });
 
@@ -260,6 +281,28 @@ describe('CloudDataService fetch operations', () => {
       message: 'Supabase client search failed: permission denied',
       code: '42501',
       originalError: supabaseError,
+    });
+  });
+
+  it('disables text client searches for agents before querying clients', async () => {
+    const { from } = mockSearchSupabaseResult({ data: null, error: null }, 'agent');
+
+    await expect(service.searchRecords({ term: 'Ada', limit: 25 })).rejects.toMatchObject({
+      code: 'AGENT_CLIENT_SEARCH_DISABLED',
+      message: 'Client search is disabled for agent accounts.',
+    });
+    expect(from).not.toHaveBeenCalledWith('clients');
+  });
+
+  it('reports when the client assignment migration is missing', async () => {
+    mockSupabaseResult({
+      data: null,
+      error: { code: '42703', message: 'column clients.assigned_agent_id does not exist' },
+    });
+
+    await expect(service.searchRecords({ term: '', limit: 25 })).rejects.toMatchObject({
+      code: 'CLIENT_ASSIGNMENT_MIGRATION_REQUIRED',
+      message: expect.stringContaining('20261110030000_client_agent_assignment.sql'),
     });
   });
 

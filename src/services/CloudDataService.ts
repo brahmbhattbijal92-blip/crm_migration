@@ -12,6 +12,14 @@ const CLIENT_COLUMNS = 'id, first_name, last_name, email, company, created_at, u
 type ClientRow = Record<string, unknown>;
 
 function throwSupabaseError(error: { message: string; code?: string }, operation: string): never {
+  if (error.code === '42703' && error.message.includes('assigned_agent_id')) {
+    throw new DataServiceError(
+      'The client assignment migration is not applied. Apply supabase/migrations/20261110030000_client_agent_assignment.sql, then retry.',
+      'CLIENT_ASSIGNMENT_MIGRATION_REQUIRED',
+      'CRITICAL',
+      error
+    );
+  }
   throw new DataServiceError(
     `Supabase ${operation} failed: ${error.message}`,
     error.code ?? 'SUPABASE_OPERATION_FAILED',
@@ -241,7 +249,31 @@ export class CloudDataService extends DataService {
     const limit = Math.min(100, Math.max(1, query.limit ?? 25));
     const offset = Math.max(0, query.offset ?? 0);
     const term = query.term.trim();
-    let request = getSupabaseClient()
+    const supabase = getSupabaseClient();
+
+    if (term) {
+      const organizationId = await getActiveOrganizationId(supabase);
+      const { data: userResult, error: userError } = await supabase.auth.getUser();
+      if (userError || !userResult.user) {
+        throw new DataServiceError('Sign in before searching client records.', 'CLOUD_AUTH_REQUIRED', 'WARNING', userError);
+      }
+      const { data: membership, error: membershipError } = await supabase
+        .from('organization_memberships')
+        .select('role')
+        .eq('organization_id', organizationId)
+        .eq('user_id', userResult.user.id)
+        .maybeSingle();
+      if (membershipError) throwSupabaseError(membershipError, 'client search authorization');
+      if (membership?.role === 'agent') {
+        throw new DataServiceError(
+          'Client search is disabled for agent accounts.',
+          'AGENT_CLIENT_SEARCH_DISABLED',
+          'WARNING'
+        );
+      }
+    }
+
+    let request = supabase
       .from(CLIENT_TABLE)
       .select(CLIENT_COLUMNS, { count: 'exact' })
       .is('deleted_at', null)

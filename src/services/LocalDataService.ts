@@ -1,6 +1,7 @@
 import { DataService } from './DataService';
 import type { Client, DocumentMetadata, SearchQuery, SearchResult } from '../types/data';
 import { DataServiceError, StorageEngineError } from '../errors/DataErrors';
+import { getSupabaseClient } from '../lib/supabase';
 
 const DATABASE_NAME = 'crm-migration-local';
 const DATABASE_VERSION = 4;
@@ -274,10 +275,37 @@ export class LocalDataService extends DataService {
   }
 
   async searchRecords(query: SearchQuery): Promise<SearchResult<Client>> {
+    const term = query.term.trim();
+    if (term) {
+      const supabase = getSupabaseClient();
+      const { data: userResult, error: userError } = await supabase.auth.getUser();
+      if (userError || !userResult.user) {
+        throw new DataServiceError('Sign in before searching client records.', 'CLOUD_AUTH_REQUIRED', 'WARNING', userError);
+      }
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('default_organization_id')
+        .eq('user_id', userResult.user.id)
+        .maybeSingle();
+      if (profileError) throw new DataServiceError(`Organization lookup failed: ${profileError.message}`, profileError.code ?? 'SUPABASE_OPERATION_FAILED', 'CRITICAL', profileError);
+      if (profile?.default_organization_id) {
+        const { data: membership, error: membershipError } = await supabase
+          .from('organization_memberships')
+          .select('role')
+          .eq('organization_id', profile.default_organization_id)
+          .eq('user_id', userResult.user.id)
+          .maybeSingle();
+        if (membershipError) throw new DataServiceError(`Organization role lookup failed: ${membershipError.message}`, membershipError.code ?? 'SUPABASE_OPERATION_FAILED', 'CRITICAL', membershipError);
+        if (membership?.role === 'agent') {
+          throw new DataServiceError('Client search is disabled for agent accounts.', 'AGENT_CLIENT_SEARCH_DISABLED', 'WARNING');
+        }
+      }
+    }
+
     const records = await runRequest<Client[]>(CLIENTS_STORE, 'readonly', (store) => store.getAll());
-    const term = query.term.trim().toLocaleLowerCase();
+    const normalizedTerm = term.toLocaleLowerCase();
     const matches = records.filter((client) =>
-      `${client.name} ${client.email} ${client.company ?? ''}`.toLocaleLowerCase().includes(term)
+      `${client.name} ${client.email} ${client.company ?? ''}`.toLocaleLowerCase().includes(normalizedTerm)
     );
     const offset = Math.max(0, query.offset ?? 0);
     const limit = Math.max(0, query.limit ?? 25);

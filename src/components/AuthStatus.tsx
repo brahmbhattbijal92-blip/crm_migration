@@ -6,6 +6,7 @@ import { getSupabaseClient } from '../lib/supabase';
 
 export default function AuthStatus() {
   const [email, setEmail] = useState('');
+  const [canManageTeam, setCanManageTeam] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState('');
 
@@ -13,11 +14,31 @@ export default function AuthStatus() {
     let active = true;
     try {
       const supabase = getSupabaseClient();
-      supabase.auth.getUser().then(({ data }) => {
-        if (active) setEmail(data.user?.email ?? '');
-      }).catch(() => undefined);
+      async function updateUser(user: { id: string; email?: string } | null) {
+        if (!active) return;
+        setEmail(user?.email ?? '');
+        setCanManageTeam(false);
+        if (!user) return;
+
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('default_organization_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (!active || !profile?.default_organization_id) return;
+
+        const { data: membership } = await supabase
+          .from('organization_memberships')
+          .select('role')
+          .eq('organization_id', profile.default_organization_id)
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (active) setCanManageTeam(['owner', 'admin'].includes(String(membership?.role)));
+      }
+
+      supabase.auth.getUser().then(({ data }) => updateUser(data.user)).catch(() => undefined);
       const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-        if (active) setEmail(session?.user.email ?? '');
+        void updateUser(session?.user ?? null);
       });
       return () => {
         active = false;
@@ -43,7 +64,7 @@ export default function AuthStatus() {
 
   return email ? (
     <div className="flex flex-wrap items-center gap-2">
-      <Link href="/dashboard/team" className="border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900">Team</Link>
+      {canManageTeam && <Link href="/dashboard/team" className="border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900">Team</Link>}
       <span className="hidden max-w-48 truncate text-xs text-zinc-500 lg:inline">{email}</span>
       <button type="button" disabled={isSigningOut} onClick={() => void signOut()} className="border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900 disabled:opacity-50">
         {isSigningOut ? 'Signing out...' : 'Sign out'}

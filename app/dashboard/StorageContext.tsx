@@ -516,6 +516,11 @@ function normalizeGrantInput(input: GrantInput): GrantInput {
 }
 
 function throwSupabaseError(error: { message: string; code?: string }, operation: string): never {
+  if (error.code === '42703' && error.message.includes('assigned_agent_id')) {
+    throw new Error(
+      'The client assignment migration is not applied. Apply supabase/migrations/20261110030000_client_agent_assignment.sql, then retry.'
+    );
+  }
   throw new Error(`Supabase ${operation} failed${error.code ? ` (${error.code})` : ''}: ${error.message}`);
 }
 
