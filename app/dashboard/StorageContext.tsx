@@ -31,6 +31,7 @@ type FilePermission = 'granted' | 'denied' | 'prompt';
 
 export interface ClientRecord {
   id: string;
+  assignedAgentId: string | null;
   firstName: string;
   lastName: string;
   email: string;
@@ -404,6 +405,7 @@ function normalizeLocalClient(value: StoredClient | Record<string, unknown>): Cl
   const archivedAt = row.archivedAt ? String(row.archivedAt) : row.status === 'archived' ? String(row.updatedAt ?? row.updated_at ?? '') : null;
   return {
     id: String(row.id),
+    assignedAgentId: row.assignedAgentId ? String(row.assignedAgentId) : null,
     firstName: String(row.firstName ?? parts.shift() ?? ''),
     lastName: String(row.lastName ?? parts.join(' ')),
     email: String(row.email ?? ''),
@@ -423,6 +425,7 @@ function normalizeLocalClient(value: StoredClient | Record<string, unknown>): Cl
 function mapCloudClient(row: Record<string, unknown>): ClientRecord {
   return {
     id: String(row.id),
+    assignedAgentId: row.assigned_agent_id ? String(row.assigned_agent_id) : null,
     firstName: String(row.first_name ?? ''),
     lastName: String(row.last_name ?? ''),
     email: String(row.email ?? ''),
@@ -559,6 +562,7 @@ class IndexedDbDataService implements IDataService {
     const now = new Date().toISOString();
     const client: StoredClient = {
       id: crypto.randomUUID(),
+      assignedAgentId: null,
       ...input,
       company: input.company ?? '',
       name: `${input.firstName.trim()} ${input.lastName.trim()}`.trim(),
@@ -952,7 +956,7 @@ class SupabaseDataService implements IDataService {
     const { offset: pageOffset, limit: pageLimit } = normalizePageBounds(offset, limit);
     let query = getSupabaseClient()
       .from('clients')
-      .select('id, first_name, last_name, email, company, status, archived_at, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at, deleted_at');
+      .select('id, first_name, last_name, email, company, status, archived_at, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at, deleted_at, assigned_agent_id');
     query = archived
       ? query.or('status.eq.archived,deleted_at.not.is.null')
       : query.is('deleted_at', null);
@@ -971,7 +975,7 @@ class SupabaseDataService implements IDataService {
   async listClients(): Promise<ClientRecord[]> {
     const { data, error } = await getSupabaseClient()
       .from('clients')
-      .select('id, first_name, last_name, email, company, status, archived_at, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at')
+      .select('id, first_name, last_name, email, company, status, archived_at, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at, assigned_agent_id')
       .is('deleted_at', null)
       .order('updated_at', { ascending: false });
     if (error) throwSupabaseError(error, 'client list');
@@ -981,7 +985,7 @@ class SupabaseDataService implements IDataService {
   async listArchivedClients(): Promise<ClientRecord[]> {
     const { data, error } = await getSupabaseClient()
       .from('clients')
-      .select('id, first_name, last_name, email, company, status, archived_at, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at')
+      .select('id, first_name, last_name, email, company, status, archived_at, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at, assigned_agent_id')
       .or('status.eq.archived,deleted_at.not.is.null')
       .order('updated_at', { ascending: false });
     if (error) throwSupabaseError(error, 'archived client list');
@@ -1002,7 +1006,7 @@ class SupabaseDataService implements IDataService {
         visa_subclass: input.visaSubclass?.trim() || null,
         visa_expires_at: input.visaExpiresAt || null,
       })
-      .select('id, first_name, last_name, email, company, status, archived_at, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at')
+      .select('id, first_name, last_name, email, company, status, archived_at, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at, assigned_agent_id')
       .single();
     if (error) throwSupabaseError(error, 'client save');
     return mapCloudClient(data as Record<string, unknown>);
@@ -1022,7 +1026,7 @@ class SupabaseDataService implements IDataService {
       })
       .eq('id', id)
       .is('deleted_at', null)
-      .select('id, first_name, last_name, email, company, status, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at')
+      .select('id, first_name, last_name, email, company, status, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at, assigned_agent_id')
       .single();
     if (error) throwSupabaseError(error, 'client update');
     return mapCloudClient(data as Record<string, unknown>);

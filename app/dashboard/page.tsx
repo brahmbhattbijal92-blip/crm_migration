@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import CredentialVault from '../../src/components/CredentialVault';
 import AuthStatus from '../../src/components/AuthStatus';
+import { assignClientToAgent, listClientAssignmentAgents } from './client-assignment-actions';
 import {
   ClientActionHub,
   ClientFinancialSummary,
@@ -27,6 +28,12 @@ import {
 } from './StorageContext';
 
 const DASHBOARD_PAGE_SIZE = 50;
+
+interface AssignmentAgent {
+  userId: string;
+  displayName: string;
+  email: string;
+}
 
 const EMPTY_FORM: ClientInput = {
   firstName: '',
@@ -104,6 +111,9 @@ function DashboardContent() {
   const isCloudStorageConfigured = getSupabasePublicConfig() !== null;
   const [clients, setClients] = useState<ClientRecord[]>([]);
   const [archivedClients, setArchivedClients] = useState<ClientRecord[]>([]);
+  const [assignmentAgents, setAssignmentAgents] = useState<AssignmentAgent[]>([]);
+  const [canAssignClients, setCanAssignClients] = useState(false);
+  const [isAssigningClient, setIsAssigningClient] = useState(false);
   const [showArchivedClients, setShowArchivedClients] = useState(false);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
@@ -204,6 +214,26 @@ function DashboardContent() {
   }, [dataService, isReady]);
 
   useEffect(() => {
+    if (!isReady || preference !== 'cloud') {
+      setAssignmentAgents([]);
+      setCanAssignClients(false);
+      return;
+    }
+
+    let active = true;
+    void listClientAssignmentAgents()
+      .then((result) => {
+        if (!active) return;
+        setAssignmentAgents(result.agents);
+        setCanAssignClients(result.canAssign);
+      })
+      .catch((error: unknown) => {
+        if (active) setErrorMessage(error instanceof Error ? error.message : 'Agent list could not be loaded.');
+      });
+    return () => { active = false; };
+  }, [isReady, preference]);
+
+  useEffect(() => {
     if (!isReady) return;
     let active = true;
     if (!selectedClientId) {
@@ -264,6 +294,27 @@ function DashboardContent() {
       setErrorMessage(error instanceof Error ? error.message : 'Dashboard data could not be refreshed.');
     } finally {
       setIsDashboardLoading(false);
+    }
+  }
+
+  async function handleAssignClient(event: React.ChangeEvent<HTMLSelectElement>) {
+    if (!selectedClient) return;
+    const client = selectedClient;
+    const agentId = event.target.value || null;
+    setIsAssigningClient(true);
+    setErrorMessage('');
+    try {
+      await assignClientToAgent(client.id, agentId);
+      const updateAssignment = (entry: ClientRecord) => entry.id === client.id
+        ? { ...entry, assignedAgentId: agentId }
+        : entry;
+      setClients((current) => current.map(updateAssignment));
+      setArchivedClients((current) => current.map(updateAssignment));
+      setSuccessMessage(agentId ? 'Client assigned to agent.' : 'Client assignment cleared.');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Client assignment could not be changed.');
+    } finally {
+      setIsAssigningClient(false);
     }
   }
 
@@ -650,6 +701,27 @@ function DashboardContent() {
                 <h1 className="mt-1 text-xl font-semibold">{selectedClient.firstName} {selectedClient.lastName}</h1>
                 <p className="mt-1 text-sm text-zinc-400">{selectedClient.company || selectedClient.email}</p>
                 <p className="mt-2 text-xs text-zinc-500">{selectedClient.email} · {selectedClient.status}</p>
+                {preference === 'cloud' && canAssignClients && (
+                  <label className="mt-4 flex flex-wrap items-center gap-3 text-xs text-zinc-400">
+                    <span>Assigned agent</span>
+                    <select
+                      value={selectedClient.assignedAgentId ?? ''}
+                      disabled={isAssigningClient}
+                      onChange={(event) => void handleAssignClient(event)}
+                      className="min-w-48 border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-emerald-500 disabled:opacity-50"
+                    >
+                      <option value="">Unassigned</option>
+                      {selectedClient.assignedAgentId && !assignmentAgents.some((agent) => agent.userId === selectedClient.assignedAgentId) && (
+                        <option value={selectedClient.assignedAgentId}>Inactive agent (assigned)</option>
+                      )}
+                      {assignmentAgents.map((agent) => (
+                        <option key={agent.userId} value={agent.userId}>
+                          {agent.displayName || agent.email || 'Agent'}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
               </div>
               <button type="button" disabled={selectedClient.status === 'archived'} onClick={() => beginEdit(selectedClient)} className="border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900 disabled:opacity-40">
                 Edit profile
