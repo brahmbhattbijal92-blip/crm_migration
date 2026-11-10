@@ -6,6 +6,7 @@ import {
   deactivateOrganizationAgent,
   inviteOrganizationAgent,
   listOrganizationMembers,
+  removeOrganizationAgent,
   requestOrganizationAgentReactivation,
 } from './actions';
 
@@ -114,6 +115,26 @@ export default function TeamPage() {
     });
   }
 
+  function handleRemoveAgent(member: TeamMember) {
+    const memberName = member.displayName || member.email || 'this agent';
+    if (!window.confirm(`Remove ${memberName} from this organization? Their account and client records will be kept, but they will lose organization access.`)) return;
+
+    setRemovingUserId(member.userId);
+    setErrorMessage('');
+    setSuccessMessage('');
+    startTransition(async () => {
+      try {
+        await removeOrganizationAgent(member.userId);
+        setSuccessMessage(`${memberName} was removed from the organization. Their account and records were kept.`);
+        await refreshMembers();
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Agent could not be removed.');
+      } finally {
+        setRemovingUserId(null);
+      }
+    });
+  }
+
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto max-w-[1000px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -161,16 +182,26 @@ export default function TeamPage() {
                 <div className="flex items-center gap-3">
                   <span className="border border-zinc-700 px-2 py-1 text-xs uppercase text-zinc-400">{member.role}</span>
                   {(member.role === 'agent' || member.role === 'inactive') && (
-                    <button
-                      type="button"
-                      disabled={removingUserId !== null}
-                      onClick={() => void handleSetAgentActive(member)}
-                      className="text-xs text-rose-300 underline underline-offset-4 hover:text-rose-200 disabled:opacity-50"
-                    >
-                      {removingUserId === member.userId
-                        ? (member.role === 'inactive' ? 'Sending email...' : 'Deactivating...')
-                        : (member.role === 'inactive' ? 'Send reactivation email' : 'Deactivate agent')}
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        disabled={removingUserId !== null}
+                        onClick={() => void handleSetAgentActive(member)}
+                        className="text-xs text-rose-300 underline underline-offset-4 hover:text-rose-200 disabled:opacity-50"
+                      >
+                        {removingUserId === member.userId
+                          ? (member.role === 'inactive' ? 'Sending email...' : 'Deactivating...')
+                          : (member.role === 'inactive' ? 'Send reactivation email' : 'Deactivate agent')}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={removingUserId !== null}
+                        onClick={() => void handleRemoveAgent(member)}
+                        className="text-xs text-zinc-400 underline underline-offset-4 hover:text-zinc-200 disabled:opacity-50"
+                      >
+                        {removingUserId === member.userId ? 'Removing...' : 'Remove agent'}
+                      </button>
+                    </>
                   )}
                 </div>
               </div>

@@ -199,6 +199,26 @@ export async function deactivateOrganizationAgent(userId: string) {
   if (!updatedMemberships?.length) throw new Error('Only active agents can be deactivated.');
 }
 
+export async function removeOrganizationAgent(userId: string) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+    throw new Error('Select a valid organization member.');
+  }
+
+  const { organizationId, user } = await requireOrganizationContext({ adminOnly: true });
+  if (user.id === userId) throw new Error('You cannot remove your own account.');
+
+  const admin = createSupabaseAdminClient();
+  const { data: removedMemberships, error: removeError } = await admin
+    .from('organization_memberships')
+    .delete()
+    .eq('organization_id', organizationId)
+    .eq('user_id', userId)
+    .in('role', ['agent', 'inactive'])
+    .select('user_id');
+  if (removeError) throw new Error(`Agent could not be removed: ${removeError.message}`);
+  if (!removedMemberships?.length) throw new Error('Only active or inactive agents can be removed.');
+}
+
 export async function completeOrganizationAgentReactivation(organizationId: string) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(organizationId)) {
     throw new Error('The reactivation organization is invalid.');
