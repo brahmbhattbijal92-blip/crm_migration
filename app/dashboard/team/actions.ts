@@ -468,33 +468,28 @@ export async function permanentlyRemoveOrganizationAgent(userId: string) {
   if (removalsError) throw new Error(`Agent recovery lookup failed: ${removalsError.message}`);
   if (!membership && !removals?.length) throw new Error('This removed agent is no longer available. Refresh and try again.');
 
-  if (membership) {
-    const { data: deletedMemberships, error: deleteMembershipError } = await admin
-      .from('organization_memberships')
-      .delete()
-      .eq('organization_id', organizationId)
-      .eq('user_id', userId)
-      .eq('role', 'inactive')
-      .eq('removed_at', membership.removed_at)
-      .select('user_id');
-    if (deleteMembershipError) throw new Error(`Agent membership could not be permanently removed: ${deleteMembershipError.message}`);
-    if (!deletedMemberships?.length) throw new Error('Agent membership changed before it could be removed. Refresh and try again.');
+  const { data: memberships, error: membershipsError } = await admin
+    .from('organization_memberships')
+    .select('organization_id')
+    .eq('user_id', userId);
+  if (membershipsError) throw new Error(`Agent organization lookup failed: ${membershipsError.message}`);
+  if (memberships?.some((agentMembership) => String(agentMembership.organization_id) !== organizationId)) {
+    throw new Error('This agent still belongs to another organization. Remove them from all organizations before permanently deleting their account.');
   }
 
-  const { error: profileError } = await admin
-    .from('profiles')
-    .update({ default_organization_id: null })
-    .eq('user_id', userId)
-    .eq('default_organization_id', organizationId);
-  if (profileError) throw new Error(`Agent organization preference could not be cleared: ${profileError.message}`);
+  const { error: deleteUserError } = await admin.auth.admin.deleteUser(userId);
+  const accountAlreadyDeleted = deleteUserError?.status === 404
+    || deleteUserError?.code === 'user_not_found'
+    || /user.*not found/i.test(deleteUserError?.message ?? '');
+  if (deleteUserError && !accountAlreadyDeleted) {
+    throw new Error(`Agent account could not be permanently deleted: ${deleteUserError.message}`);
+  }
 
   const { error: deleteRemovalsError } = await admin
     .from('organization_agent_removals')
     .delete()
     .eq('organization_id', organizationId)
-    .eq('original_user_id', userId)
-    .is('restored_at', null)
-    .is('reinvited_at', null);
+    .eq('original_user_id', userId);
   if (deleteRemovalsError) throw new Error(`Agent recovery record could not be permanently removed: ${deleteRemovalsError.message}`);
 }
 

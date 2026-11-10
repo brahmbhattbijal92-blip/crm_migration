@@ -167,7 +167,7 @@ export default function TeamPage() {
 
   function handlePermanentlyRemoveAgent(member: TeamMember) {
     const memberName = member.displayName || member.email || 'this agent';
-    if (!window.confirm(`Permanently remove ${memberName} from this organization? They will no longer be recoverable or have organization access. Their Supabase account and historical records will remain. This cannot be undone.`)) return;
+    if (!window.confirm(`Permanently delete ${memberName}'s Supabase account? This deletes their login, profile, and organization memberships, plus related notification records. Client and financial records remain, but the agent attribution will be cleared. They cannot be restored. This cannot be undone.`)) return;
 
     setRemovingUserId(member.userId);
     setErrorMessage('');
@@ -175,7 +175,7 @@ export default function TeamPage() {
     startTransition(async () => {
       try {
         await permanentlyRemoveOrganizationAgent(member.userId);
-        setSuccessMessage(`${memberName} was permanently removed from this organization. Their account and historical records were kept.`);
+        setSuccessMessage(`${memberName}'s Supabase account was permanently deleted. Client and financial records were kept.`);
         await refreshMembers();
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : 'Agent could not be permanently removed.');
@@ -293,7 +293,7 @@ export default function TeamPage() {
                       onClick={() => handlePermanentlyRemoveAgent(member)}
                       className="text-xs text-rose-300 underline underline-offset-4 hover:text-rose-200 disabled:opacity-50"
                     >
-                      {removingUserId === member.userId ? 'Removing permanently...' : 'Permanently remove'}
+                      {removingUserId === member.userId ? 'Deleting account...' : 'Delete account permanently'}
                     </button>
                   </div>
                 </div>
