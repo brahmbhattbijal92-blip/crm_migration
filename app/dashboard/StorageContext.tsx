@@ -1028,23 +1028,19 @@ class SupabaseDataService implements IDataService {
   }
 
   async saveClient(input: ClientInput): Promise<ClientRecord> {
-    const organizationId = await getActiveOrganizationId();
-    const { data, error } = await getSupabaseClient()
-      .from('clients')
-      .insert({
-        organization_id: organizationId,
-        first_name: input.firstName.trim(),
-        last_name: input.lastName.trim(),
-        email: input.email.trim(),
-        company: input.company?.trim() || null,
-        passport_expires_at: input.passportExpiresAt || null,
-        visa_subclass: input.visaSubclass?.trim() || null,
-        visa_expires_at: input.visaExpiresAt || null,
-      })
-      .select('id, first_name, last_name, email, company, status, archived_at, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at, assigned_agent_id')
-      .single();
+    const { data, error } = await getSupabaseClient().rpc('create_client', {
+      requested_first_name: input.firstName.trim(),
+      requested_last_name: input.lastName.trim(),
+      requested_email: input.email.trim(),
+      requested_company: input.company?.trim() || null,
+      requested_passport_expires_at: input.passportExpiresAt || null,
+      requested_visa_subclass: input.visaSubclass?.trim() || null,
+      requested_visa_expires_at: input.visaExpiresAt || null,
+    });
     if (error) throwSupabaseError(error, 'client save');
-    return mapCloudClient(data as Record<string, unknown>);
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) throw new Error('Client could not be created. Retry or contact your administrator.');
+    return mapCloudClient(row as Record<string, unknown>);
   }
 
   async updateClient(id: string, input: ClientInput): Promise<ClientRecord> {

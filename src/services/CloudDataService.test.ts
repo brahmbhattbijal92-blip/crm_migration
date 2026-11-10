@@ -117,6 +117,42 @@ describe('CloudDataService fetch operations', () => {
     expect(query.range).toHaveBeenCalledWith(0, 24);
   });
 
+  it('creates clients through the RLS-aligned database RPC', async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: [{
+        id: 'client-1',
+        first_name: 'Ada',
+        last_name: 'Lovelace',
+        email: 'ada@example.com',
+        company: 'Analytical Engines',
+        updated_at: '2026-01-02T03:04:05.000Z',
+      }],
+      error: null,
+    });
+    getSupabaseClientMock.mockReturnValue({ rpc });
+
+    await expect(service.saveClient({
+      id: 'client-request-id',
+      name: 'Ada Lovelace',
+      email: 'ada@example.com',
+      company: 'Analytical Engines',
+    })).resolves.toMatchObject({
+      id: 'client-1',
+      name: 'Ada Lovelace',
+      email: 'ada@example.com',
+      company: 'Analytical Engines',
+    });
+    expect(rpc).toHaveBeenCalledWith('create_client', {
+      requested_first_name: 'Ada',
+      requested_last_name: 'Lovelace',
+      requested_email: 'ada@example.com',
+      requested_company: 'Analytical Engines',
+      requested_passport_expires_at: null,
+      requested_visa_subclass: null,
+      requested_visa_expires_at: null,
+    });
+  });
+
   it('uploads documents under the tenant/client path and saves metadata to documents', async () => {
     const organizationId = 'c5a1970a-cf77-448a-8e15-88f0d7b6a355';
     const clientId = '9ba6bd8b-f238-4efb-9200-7405eebfd6c7';

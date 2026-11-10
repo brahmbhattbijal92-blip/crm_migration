@@ -106,20 +106,21 @@ async function getActiveOrganizationId(supabase: ReturnType<typeof getSupabaseCl
 export class CloudDataService extends DataService {
   async saveClient(client: Omit<Client, 'updatedAt'>): Promise<Client> {
     const supabase = getSupabaseClient();
-    const organizationId = await getActiveOrganizationId(supabase);
-    const { data, error } = await supabase
-      .from(CLIENT_TABLE)
-      .insert({
-        organization_id: organizationId,
-        ...splitName(client.name),
-        email: client.email,
-        ...(client.company === undefined ? {} : { company: client.company }),
-      })
-      .select(CLIENT_COLUMNS)
-      .single();
+    const name = splitName(client.name);
+    const { data, error } = await supabase.rpc('create_client', {
+      requested_first_name: name.first_name,
+      requested_last_name: name.last_name,
+      requested_email: client.email,
+      requested_company: client.company ?? null,
+      requested_passport_expires_at: null,
+      requested_visa_subclass: null,
+      requested_visa_expires_at: null,
+    });
 
     if (error) throwSupabaseError(error, 'client save');
-    return mapClient(data as ClientRow);
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) throw new DataServiceError('Client could not be created.', 'CLIENT_CREATE_FAILED', 'CRITICAL');
+    return mapClient(row as ClientRow);
   }
 
   async updateClient(

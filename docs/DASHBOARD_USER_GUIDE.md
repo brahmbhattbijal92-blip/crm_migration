@@ -45,11 +45,24 @@ Use the **Storage** menu in the dashboard header.
 ## 5. Documents and Other Tools
 
 - **Document staging:** Local mode saves file contents to a folder you choose. Cloud mode uses the organization's private document storage. The browser asks for folder access in Local mode.
-- **Team access:** Owners and admins can review team members and invite agents.
+- **Team access:** Only the organization owner can open Team access, review members, and invite agents. Agents do not have a Team menu or Team page access.
 - **Data lifecycle:** Review inactive accounts, export the selected inactivity report as CSV, and follow the purge checks. This CSV is not a full Local backup.
 - **Expiry reminders:** The worker records simulated passport and visa reminders at 90, 60, and 30 days. It does not send a real email or text message.
 - **Credential vault:** Saved credentials are encrypted. Reveal sends a one-time code to the signed-in user's verified phone number; production use requires configured Twilio and Upstash credentials.
-- **Companion extension:** Profile sharing requires the separately installed browser extension. It shares selected profile fields for a one-time form fill.
+
+### Share Selected Client
+
+Use **Share selected client** when you want to copy the currently selected client's profile details into a compatible form in the approved ImmiAccount portal.
+
+1. Install and enable the **Migration Form Assistant** Chrome extension. The deployment must have the extension ID configured.
+2. In the dashboard, select the client whose profile you need.
+3. Open exactly one ImmiAccount tab at `https://online.immi.gov.au` in the same Chrome window.
+4. Choose **Share selected client** in the dashboard. The extension stores the profile temporarily for that portal tab.
+5. In the portal, choose **Fill form from client**. The extension fills matching, visible, empty fields; review the values and submit the portal form yourself.
+
+The one-time profile contains first and last name, email, company, passport expiry, visa subclass, and visa expiry. It expires after five minutes and is consumed once. Existing non-empty fields are not overwritten. The extension does not submit the form and does not share vault usernames, passwords, one-time codes, or other credentials. Use the share only when the selected client and portal form are correct.
+
+If sharing fails, check that the extension is installed and enabled, the correct client is selected, exactly one approved portal tab is open, and the extension ID is configured for the current deployment.
 
 ## 6. Protect Your Work
 
