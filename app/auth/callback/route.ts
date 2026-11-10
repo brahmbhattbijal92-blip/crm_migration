@@ -21,5 +21,7 @@ export async function GET(request: NextRequest) {
     console.error('Supabase auth callback verification failed:', { code: error.code, message: error.message });
   }
 
-  return NextResponse.redirect(new URL('/login?error=confirmation', request.url));
+  const completionUrl = new URL('/auth/complete', request.url);
+  completionUrl.searchParams.set('next', nextPath);
+  return NextResponse.redirect(completionUrl);
 }

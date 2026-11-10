@@ -37,4 +37,12 @@ describe('Supabase auth callback', () => {
     expect(authMethods.exchangeCodeForSession).toHaveBeenCalledWith('test-code');
     expect(response.headers.get('location')).toBe('https://crm-migration-three.vercel.app/dashboard');
   });
+
+  it('hands fragment-based email sessions to the browser completion page', async () => {
+    const response = await GET(makeRequest('?next=%2Fdashboard'));
+
+    expect(authMethods.exchangeCodeForSession).not.toHaveBeenCalled();
+    expect(authMethods.verifyOtp).not.toHaveBeenCalled();
+    expect(response.headers.get('location')).toBe('https://crm-migration-three.vercel.app/auth/complete?next=%2Fdashboard');
+  });
 });
