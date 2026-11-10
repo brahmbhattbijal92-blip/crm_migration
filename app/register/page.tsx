@@ -13,32 +13,71 @@ export default function RegisterPage() {
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [isExistingAccount, setIsExistingAccount] = useState(false);
+  const [canResendConfirmation, setCanResendConfirmation] = useState(false);
+
+  function getConfirmationRedirectUrl(): string {
+    return `${window.location.origin}/auth/callback?next=/setup`;
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSubmitting(true);
     setErrorMessage('');
     setSuccessMessage('');
+    setIsExistingAccount(false);
+    setCanResendConfirmation(false);
     try {
       const { data, error } = await getSupabaseClient().auth.signUp({
         email: email.trim(),
         password,
         options: {
           data: { full_name: fullName.trim() },
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=/setup`,
+          emailRedirectTo: getConfirmationRedirectUrl(),
         },
       });
       if (error) throw error;
+      if (data.user?.identities?.length === 0) {
+        setIsExistingAccount(true);
+        setSuccessMessage('An account with this email already exists. Sign in instead. If an owner deactivated your organization access, ask them to send a reactivation email from Team.');
+        return;
+      }
       if (data.session) {
         router.replace('/setup');
         router.refresh();
       } else {
-        setSuccessMessage('Check your email to confirm the owner account, then continue company setup.');
+        setCanResendConfirmation(true);
+        setSuccessMessage('Supabase accepted the signup request. Check your inbox, Spam, and Promotions folders for the confirmation email.');
       }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Organization registration failed.');
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleResendConfirmation() {
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail) {
+      setErrorMessage('Enter the registration email address before requesting another confirmation email.');
+      return;
+    }
+
+    setIsResending(true);
+    setErrorMessage('');
+    try {
+      const { error } = await getSupabaseClient().auth.resend({
+        type: 'signup',
+        email: normalizedEmail,
+        options: { emailRedirectTo: getConfirmationRedirectUrl() },
+      });
+      if (error) throw error;
+      setSuccessMessage('Supabase accepted another confirmation request. Check your inbox, Spam, and Promotions. Delivery depends on the project email provider.');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'The confirmation email could not be resent.');
+    } finally {
+      setIsResending(false);
     }
   }
 
@@ -49,7 +88,18 @@ export default function RegisterPage() {
         <h1 className="mt-2 text-2xl font-semibold">Register your organization</h1>
         <p className="mt-2 text-sm text-zinc-400">Create the owner account first. Invite agents after company setup.</p>
         {errorMessage && <p role="alert" className="mt-5 border border-rose-900 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">{errorMessage}</p>}
-        {successMessage && <p role="status" className="mt-5 border border-emerald-900 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-200">{successMessage}</p>}
+        {successMessage && (
+          <div role="status" className="mt-5 space-y-3 border border-emerald-900 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-200">
+            <p>{successMessage}</p>
+            {isExistingAccount ? (
+              <Link href="/login" className="inline-block border border-emerald-800 px-3 py-2 text-xs font-medium text-emerald-100 hover:bg-emerald-900/40">Go to sign in</Link>
+            ) : canResendConfirmation && (
+              <button type="button" disabled={isResending} onClick={() => void handleResendConfirmation()} className="border border-emerald-800 px-3 py-2 text-xs font-medium text-emerald-100 hover:bg-emerald-900/40 disabled:opacity-50">
+                {isResending ? 'Resending...' : 'Resend confirmation email'}
+              </button>
+            )}
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <label className="block space-y-1.5">
             <span className="text-xs text-zinc-400">Owner name</span>

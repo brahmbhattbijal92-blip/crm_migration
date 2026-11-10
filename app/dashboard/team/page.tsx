@@ -73,7 +73,7 @@ export default function TeamPage() {
         } else if (invitation.status === 'already-active') {
           setErrorMessage('This person is already an active agent in the organization.');
         } else if (invitation.status === 'reactivation-email-sent') {
-          setSuccessMessage(`Reactivation email sent to ${invitation.email}.`);
+          setSuccessMessage(`Reactivation email sent to ${invitation.email}. They must verify the email and finish the reactivation flow before their membership becomes active.`);
         } else if (invitation.status === 'removed-member') {
           setErrorMessage('This person was removed from the organization. Restore them from Removed agents or use the recovery invitation.');
         } else {
@@ -107,7 +107,7 @@ export default function TeamPage() {
       try {
         if (isActive) {
           const result = await requestOrganizationAgentReactivation(member.userId);
-          setSuccessMessage(`Reactivation email sent to ${result.email}.`);
+          setSuccessMessage(`Reactivation email sent to ${result.email}. They must verify the email and finish the reactivation flow before their membership becomes active.`);
         } else {
           await deactivateOrganizationAgent(member.userId);
           setSuccessMessage(`${memberName} was deactivated in the organization.`);

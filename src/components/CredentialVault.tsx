@@ -57,11 +57,21 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
   const [challenge, setChallenge] = useState<PendingChallenge | null>(null);
   const [pin, setPin] = useState('');
   const [otpRequestAvailableAt, setOtpRequestAvailableAt] = useState(0);
-  const [resendInSeconds, setResendInSeconds] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const verifiedCredentialTimers = useRef(new Map<string, number>());
   const challengeOperation = useRef(0);
+  const resendInSeconds = Math.max(0, Math.ceil((otpRequestAvailableAt - currentTime) / 1000));
+
+  useEffect(() => {
+    const initialTime = window.setTimeout(() => setCurrentTime(Date.now()), 0);
+    const clockTimer = window.setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => {
+      window.clearTimeout(initialTime);
+      window.clearInterval(clockTimer);
+    };
+  }, []);
 
   useEffect(() => {
     let isCurrent = true;
@@ -85,30 +95,10 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
     verifiedCredentialTimers.current.clear();
   }, []);
 
-  useEffect(() => {
-    if (!otpRequestAvailableAt) {
-      setResendInSeconds(0);
-      return;
-    }
-
-    let timer: number | undefined;
-    const updateCountdown = () => {
-      const remaining = Math.max(0, Math.ceil((otpRequestAvailableAt - Date.now()) / 1000));
-      setResendInSeconds(remaining);
-      if (remaining === 0 && timer !== undefined) window.clearInterval(timer);
-    };
-    updateCountdown();
-    if (otpRequestAvailableAt <= Date.now()) return;
-    timer = window.setInterval(updateCountdown, 1000);
-    return () => {
-      if (timer !== undefined) window.clearInterval(timer);
-    };
-  }, [otpRequestAvailableAt]);
-
   function showOtpRequestError(error: unknown, fallback: string) {
     const message = error instanceof Error ? error.message : fallback;
     if (message.includes('wait 60 seconds')) {
-      setOtpRequestAvailableAt(Date.now() + VAULT_EMAIL_OTP_RESEND_COOLDOWN_MS);
+      setOtpRequestAvailableAt(currentTime + VAULT_EMAIL_OTP_RESEND_COOLDOWN_MS);
     }
     setErrorMessage(message);
   }
@@ -167,7 +157,7 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
       return;
     }
     const verifiedPair = verifiedCredentialPairs[record.id];
-    if (verifiedPair && verifiedPair.expiresAt > Date.now()) {
+    if (verifiedPair && verifiedPair.expiresAt > currentTime) {
       setRevealedValues((current) => ({ ...current, [key]: verifiedPair[field] }));
       return;
     }
@@ -244,7 +234,7 @@ export default function CredentialVault({ clientId, clientName }: CredentialVaul
         [challenge.vaultId]: {
           username: result.username,
           password: result.password,
-          expiresAt: Date.now() + 30_000,
+          expiresAt: currentTime + 30_000,
         },
       }));
       setRevealedValues((current) => ({ ...current, [key]: result[challenge.field] }));
