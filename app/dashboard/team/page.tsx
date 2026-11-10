@@ -7,6 +7,7 @@ import {
   inviteOrganizationAgent,
   listOrganizationMembers,
   removeOrganizationAgent,
+  restoreOrganizationAgent,
   requestOrganizationAgentReactivation,
 } from './actions';
 
@@ -20,6 +21,8 @@ export default function TeamPage() {
   const [removingUserId, setRemovingUserId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const activeMembers = members.filter((member) => !member.removedAt);
+  const removedMembers = members.filter((member) => Boolean(member.removedAt));
 
   async function refreshMembers() {
     try {
@@ -70,6 +73,8 @@ export default function TeamPage() {
           setErrorMessage('This person is already an active agent in the organization.');
         } else if (invitation.status === 'reactivation-email-sent') {
           setSuccessMessage(`Reactivation email sent to ${invitation.email}.`);
+        } else if (invitation.status === 'removed-member') {
+          setErrorMessage('This person was removed from the organization. Restore them from Removed agents or use the recovery invitation.');
         } else {
           const messages = {
             invited: `Agent invitation sent to ${invitation.email}.`,
@@ -125,10 +130,33 @@ export default function TeamPage() {
     startTransition(async () => {
       try {
         await removeOrganizationAgent(member.userId);
-        setSuccessMessage(`${memberName} was removed from the organization. Their account and records were kept.`);
+        setSuccessMessage(`${memberName} was removed from the organization. Their account and records were kept for 30-day recovery.`);
         await refreshMembers();
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : 'Agent could not be removed.');
+      } finally {
+        setRemovingUserId(null);
+      }
+    });
+  }
+
+  function handleRestoreAgent(member: TeamMember) {
+    if (!member.recoveryId) return;
+    const memberName = member.displayName || member.email || 'this agent';
+    if (!window.confirm(`Restore ${memberName} to this organization? If their original login account is gone, a new invitation will be sent to ${member.email}.`)) return;
+
+    setRemovingUserId(member.userId);
+    setErrorMessage('');
+    setSuccessMessage('');
+    startTransition(async () => {
+      try {
+        const result = await restoreOrganizationAgent(member.recoveryId!);
+        setSuccessMessage(result.status === 'restored'
+          ? `${memberName} was restored with their original account and history.`
+          : `The original account is unavailable. A secure invitation was sent to ${result.email}.`);
+        await refreshMembers();
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Agent recovery failed.');
       } finally {
         setRemovingUserId(null);
       }
@@ -166,14 +194,14 @@ export default function TeamPage() {
         <section className="border border-zinc-800 bg-zinc-900/40">
           <div className="border-b border-zinc-800 px-5 py-4">
             <h2 className="text-base font-semibold">Organization members</h2>
-            <p className="mt-1 text-xs text-zinc-500">{members.length} members</p>
+            <p className="mt-1 text-xs text-zinc-500">{activeMembers.length} members</p>
           </div>
           <div className="divide-y divide-zinc-800">
             {isLoading ? (
               <p className="px-5 py-8 text-sm text-zinc-500">Loading team...</p>
-            ) : members.length === 0 ? (
+            ) : activeMembers.length === 0 ? (
               <p className="px-5 py-8 text-sm text-zinc-500">No members found.</p>
-            ) : members.map((member) => (
+            ) : activeMembers.map((member) => (
               <div key={member.userId} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
                 <div>
                   <p className="text-sm font-medium text-zinc-200">{member.displayName || member.email || 'Pending agent'}</p>
@@ -208,6 +236,34 @@ export default function TeamPage() {
             ))}
           </div>
         </section>
+
+        {removedMembers.length > 0 && (
+          <section className="border border-zinc-800 bg-zinc-900/40">
+            <div className="border-b border-zinc-800 px-5 py-4">
+              <h2 className="text-base font-semibold">Removed agents</h2>
+              <p className="mt-1 text-xs text-zinc-500">Restore original accounts within 30 days. If an account no longer exists, send a secure replacement invitation.</p>
+            </div>
+            <div className="divide-y divide-zinc-800">
+              {removedMembers.map((member) => (
+                <div key={member.recoveryId ?? member.userId} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+                  <div>
+                    <p className="text-sm font-medium text-zinc-200">{member.displayName || member.email || 'Removed agent'}</p>
+                    {member.displayName && <p className="mt-0.5 text-xs text-zinc-500">{member.email}</p>}
+                    <p className="mt-1 text-xs text-zinc-500">Removed {member.removedAt ? new Date(member.removedAt).toLocaleDateString() : 'date unavailable'}</p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={removingUserId !== null || !member.recoveryId}
+                    onClick={() => handleRestoreAgent(member)}
+                    className="text-xs text-emerald-300 underline underline-offset-4 hover:text-emerald-200 disabled:opacity-50"
+                  >
+                    {removingUserId === member.userId ? 'Recovering...' : 'Restore / re-invite'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </main>
   );

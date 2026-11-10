@@ -30,10 +30,17 @@ CREATE TABLE IF NOT EXISTS public.organization_memberships (
   organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   role text NOT NULL DEFAULT 'member',
+  removed_at timestamptz,
+  removed_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  removed_role text,
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (organization_id, user_id),
   CONSTRAINT organization_memberships_role_check
-    CHECK (role IN ('owner', 'admin', 'agent', 'member', 'viewer', 'inactive'))
+    CHECK (role IN ('owner', 'admin', 'agent', 'member', 'viewer', 'inactive')),
+  CONSTRAINT organization_memberships_removed_role_check
+    CHECK (removed_role IS NULL OR removed_role IN ('agent', 'inactive')),
+  CONSTRAINT organization_memberships_removed_state_check
+    CHECK ((removed_at IS NULL) = (removed_role IS NULL))
 );
 
 ALTER TABLE public.organization_memberships
@@ -41,6 +48,29 @@ ALTER TABLE public.organization_memberships
 ALTER TABLE public.organization_memberships
   ADD CONSTRAINT organization_memberships_role_check
     CHECK (role IN ('owner', 'admin', 'agent', 'member', 'viewer', 'inactive'));
+
+CREATE TABLE IF NOT EXISTS public.organization_agent_removals (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  original_user_id uuid NOT NULL,
+  email text NOT NULL CHECK (length(email) BETWEEN 3 AND 320),
+  display_name text NOT NULL DEFAULT '',
+  original_role text NOT NULL CHECK (original_role IN ('agent', 'inactive')),
+  membership_created_at timestamptz NOT NULL,
+  removed_at timestamptz NOT NULL DEFAULT now(),
+  removed_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  restored_at timestamptz,
+  reinvited_at timestamptz,
+  replacement_user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS organization_agent_removals_org_removed_idx
+  ON public.organization_agent_removals (organization_id, removed_at DESC)
+  WHERE restored_at IS NULL AND reinvited_at IS NULL;
+ALTER TABLE public.organization_agent_removals ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.organization_agent_removals FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.organization_agent_removals TO service_role;
 
 CREATE TABLE IF NOT EXISTS public.clients (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -206,6 +236,8 @@ BEGIN
     FROM public.organization_memberships AS memberships
     WHERE memberships.organization_id = requested_id
       AND memberships.user_id = actor_id
+      AND memberships.role <> 'inactive'
+      AND memberships.removed_at IS NULL
   ) THEN
     RETURN NULL;
   END IF;
@@ -908,6 +940,7 @@ GRANT SELECT ON public.profiles TO authenticated;
 REVOKE ALL PRIVILEGES ON public.organization_memberships FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.organization_memberships TO authenticated;
 REVOKE INSERT, UPDATE, DELETE ON public.organization_memberships FROM authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.organization_memberships TO service_role;
 REVOKE ALL PRIVILEGES ON public.clients FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.clients TO authenticated;
 GRANT INSERT (organization_id, first_name, last_name, email, company, status)

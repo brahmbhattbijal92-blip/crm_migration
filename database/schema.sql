@@ -21,8 +21,12 @@ CREATE TABLE IF NOT EXISTS public.organization_memberships (
   organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   role text NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'admin', 'agent', 'member', 'viewer', 'inactive')),
+  removed_at timestamptz,
+  removed_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  removed_role text CHECK (removed_role IS NULL OR removed_role IN ('agent', 'inactive')),
   created_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (organization_id, user_id)
+  PRIMARY KEY (organization_id, user_id),
+  CHECK ((removed_at IS NULL) = (removed_role IS NULL))
 );
 
 ALTER TABLE public.organization_memberships
@@ -30,6 +34,26 @@ ALTER TABLE public.organization_memberships
 ALTER TABLE public.organization_memberships
   ADD CONSTRAINT organization_memberships_role_check
   CHECK (role IN ('owner', 'admin', 'agent', 'member', 'viewer', 'inactive'));
+
+CREATE TABLE IF NOT EXISTS public.organization_agent_removals (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  original_user_id uuid NOT NULL,
+  email text NOT NULL CHECK (length(email) BETWEEN 3 AND 320),
+  display_name text NOT NULL DEFAULT '',
+  original_role text NOT NULL CHECK (original_role IN ('agent', 'inactive')),
+  membership_created_at timestamptz NOT NULL,
+  removed_at timestamptz NOT NULL DEFAULT now(),
+  removed_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  restored_at timestamptz,
+  reinvited_at timestamptz,
+  replacement_user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS organization_agent_removals_org_removed_idx
+  ON public.organization_agent_removals (organization_id, removed_at DESC)
+  WHERE restored_at IS NULL AND reinvited_at IS NULL;
 
 CREATE OR REPLACE FUNCTION app.handle_new_auth_user()
 RETURNS trigger
@@ -660,6 +684,8 @@ BEGIN
     FROM public.organization_memberships AS memberships
     WHERE memberships.organization_id = requested_id
       AND memberships.user_id = actor_id
+      AND memberships.role <> 'inactive'
+      AND memberships.removed_at IS NULL
   ) THEN
     RETURN NULL;
   END IF;
@@ -1029,6 +1055,8 @@ GRANT USAGE ON SCHEMA app TO anon, authenticated, service_role;
 GRANT SELECT, UPDATE (name) ON public.organizations TO authenticated;
 GRANT SELECT ON public.profiles TO authenticated;
 GRANT SELECT ON public.organization_memberships TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.organization_memberships TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.organization_agent_removals TO service_role;
 REVOKE INSERT, UPDATE, DELETE ON public.organization_memberships FROM authenticated;
 GRANT SELECT, INSERT ON public.clients TO authenticated;
 REVOKE DELETE ON public.clients FROM authenticated;
@@ -1059,6 +1087,7 @@ GRANT UPDATE (read_at) ON public.governance_notifications TO authenticated;
 ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.organization_memberships ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.organization_agent_removals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.credentials_vault ENABLE ROW LEVEL SECURITY;
@@ -1070,6 +1099,7 @@ ALTER TABLE public.governance_notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.organizations FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.organization_memberships FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.organization_agent_removals FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.clients FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.documents FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.credentials_vault FORCE ROW LEVEL SECURITY;

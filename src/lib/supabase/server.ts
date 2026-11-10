@@ -41,13 +41,13 @@ export async function requireOrganizationContext(options: { adminOnly?: boolean;
   const organizationId = String(profile.default_organization_id);
   const { data: membership, error: membershipError } = await supabase
     .from('organization_memberships')
-    .select('role')
+    .select('role, removed_at')
     .eq('organization_id', organizationId)
     .eq('user_id', userResult.user.id)
     .single();
   if (membershipError || !membership) throw new Error('You are not a member of this organization.');
   const role = String(membership.role);
-  if (role === 'inactive') throw new Error('Your organization membership is inactive.');
+  if (role === 'inactive' || membership.removed_at) throw new Error('Your organization membership is inactive.');
   if (options.adminOnly && !['owner', 'admin'].includes(role)) {
     throw new Error('Organization owner or admin access is required.');
   }

@@ -52,11 +52,11 @@ export async function proxy(request: NextRequest) {
     if (organizationId) {
       const { data: membership } = await supabase
         .from('organization_memberships')
-        .select('organization_id, role')
+        .select('organization_id, role, removed_at')
         .eq('organization_id', organizationId)
         .eq('user_id', userResult.user.id)
         .maybeSingle();
-      hasOrganizationAccess = Boolean(membership && membership.role !== 'inactive');
+      hasOrganizationAccess = Boolean(membership && membership.role !== 'inactive' && !membership.removed_at);
     }
 
     if (isDashboard && !hasOrganizationAccess) {
