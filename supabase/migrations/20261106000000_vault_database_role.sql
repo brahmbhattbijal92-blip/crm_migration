@@ -10,9 +10,6 @@ BEGIN
 END
 $$;
 
-ALTER ROLE crm_vault_app
-  LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION NOBYPASSRLS;
-
 GRANT authenticated TO crm_vault_app;
 GRANT USAGE ON SCHEMA public, app TO crm_vault_app;
 

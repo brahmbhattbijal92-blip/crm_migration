@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 CREATE TABLE IF NOT EXISTS public.organization_memberships (
   organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  role text NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'admin', 'agent', 'member', 'viewer')),
+  role text NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'admin', 'agent', 'member', 'viewer', 'inactive')),
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (organization_id, user_id)
 );
@@ -29,7 +29,7 @@ ALTER TABLE public.organization_memberships
   DROP CONSTRAINT IF EXISTS organization_memberships_role_check;
 ALTER TABLE public.organization_memberships
   ADD CONSTRAINT organization_memberships_role_check
-  CHECK (role IN ('owner', 'admin', 'agent', 'member', 'viewer'));
+  CHECK (role IN ('owner', 'admin', 'agent', 'member', 'viewer', 'inactive'));
 
 CREATE OR REPLACE FUNCTION app.handle_new_auth_user()
 RETURNS trigger

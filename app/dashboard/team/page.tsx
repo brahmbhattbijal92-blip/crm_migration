@@ -56,8 +56,21 @@ export default function TeamPage() {
       try {
         const invitation = await inviteOrganizationAgent(email);
         setEmail('');
-        setSuccessMessage(`Agent invitation sent to ${invitation.email}.`);
-        await refreshMembers();
+        if (invitation.status === 'self') {
+          setErrorMessage('You cannot invite your own account as an agent.');
+        } else if (invitation.status === 'privileged-member') {
+          setErrorMessage('This person is already an owner or administrator in the organization.');
+        } else if (invitation.status === 'already-active') {
+          setErrorMessage('This person is already an active agent in the organization.');
+        } else {
+          const messages = {
+            invited: `Agent invitation sent to ${invitation.email}.`,
+            added: `Existing account ${invitation.email} was added as an agent.`,
+            reactivated: `Existing account ${invitation.email} was reactivated as an agent.`,
+          };
+          setSuccessMessage(messages[invitation.status]);
+          await refreshMembers();
+        }
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : 'Agent invitation failed.');
       } finally {

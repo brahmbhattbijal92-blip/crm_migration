@@ -54,14 +54,68 @@ export async function inviteOrganizationAgent(email: string) {
   }
 
   const { organizationId, user } = await requireOrganizationContext({ adminOnly: true });
+  if (user.email?.trim().toLowerCase() === normalizedEmail) {
+    return { email: normalizedEmail, status: 'self' as const };
+  }
+
   const admin = createSupabaseAdminClient();
   const { data, error } = await admin.auth.admin.inviteUserByEmail(normalizedEmail, {
     redirectTo: `${getAppOrigin()}/auth/callback?next=/dashboard`,
     data: { invited_organization_id: organizationId },
   });
-  if (error) throw new Error(`Agent invitation failed: ${error.message}`);
+  if (error) {
+    const alreadyRegistered = error.code === 'email_exists' || /already\s+(been\s+)?registered/i.test(error.message);
+    if (!alreadyRegistered) throw new Error(`Agent invitation failed: ${error.message}`);
+
+    const { data: existingProfile, error: profileLookupError } = await admin
+      .from('profiles')
+      .select('user_id')
+      .eq('email', normalizedEmail)
+      .maybeSingle();
+    if (profileLookupError) throw new Error(`Existing agent lookup failed: ${profileLookupError.message}`);
+    if (!existingProfile) {
+      throw new Error('This account already exists, but its profile could not be found. Contact an administrator.');
+    }
+
+    const existingUserId = String(existingProfile.user_id);
+    if (existingUserId === user.id) {
+      return { email: normalizedEmail, status: 'self' as const };
+    }
+
+    const { data: existingMembership, error: membershipLookupError } = await admin
+      .from('organization_memberships')
+      .select('role')
+      .eq('organization_id', organizationId)
+      .eq('user_id', existingUserId)
+      .maybeSingle();
+    if (membershipLookupError) throw new Error(`Existing membership lookup failed: ${membershipLookupError.message}`);
+
+    if (existingMembership && ['owner', 'admin'].includes(String(existingMembership.role))) {
+      return { email: normalizedEmail, status: 'privileged-member' as const };
+    }
+    if (existingMembership?.role === 'agent') {
+      return { email: normalizedEmail, status: 'already-active' as const };
+    }
+
+    const { error: membershipError } = await admin
+      .from('organization_memberships')
+      .upsert({ organization_id: organizationId, user_id: existingUserId, role: 'agent' });
+    if (membershipError) throw new Error(`Existing account access could not be assigned: ${membershipError.message}`);
+
+    const { error: profileError } = await admin
+      .from('profiles')
+      .update({ default_organization_id: organizationId })
+      .eq('user_id', existingUserId);
+    if (profileError) throw new Error(`The default organization could not be set: ${profileError.message}`);
+
+    return {
+      email: normalizedEmail,
+      status: existingMembership?.role === 'inactive' ? 'reactivated' as const : 'added' as const,
+    };
+  }
+
   if (!data.user) throw new Error('Supabase did not return the invited agent account.');
-  if (data.user.id === user.id) throw new Error('You cannot invite your own account as an agent.');
+  if (data.user.id === user.id) return { email: normalizedEmail, status: 'self' as const };
 
   const { error: membershipError } = await admin
     .from('organization_memberships')
@@ -75,7 +129,7 @@ export async function inviteOrganizationAgent(email: string) {
     .is('default_organization_id', null);
   if (profileError) throw new Error(`Invite was sent, but the default organization could not be set: ${profileError.message}`);
 
-  return { email: normalizedEmail };
+  return { email: normalizedEmail, status: 'invited' as const };
 }
 
 export async function setOrganizationAgentActive(userId: string, isActive: boolean) {

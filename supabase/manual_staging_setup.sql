@@ -33,14 +33,14 @@ CREATE TABLE IF NOT EXISTS public.organization_memberships (
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (organization_id, user_id),
   CONSTRAINT organization_memberships_role_check
-    CHECK (role IN ('owner', 'admin', 'agent', 'member', 'viewer'))
+    CHECK (role IN ('owner', 'admin', 'agent', 'member', 'viewer', 'inactive'))
 );
 
 ALTER TABLE public.organization_memberships
   DROP CONSTRAINT IF EXISTS organization_memberships_role_check;
 ALTER TABLE public.organization_memberships
   ADD CONSTRAINT organization_memberships_role_check
-    CHECK (role IN ('owner', 'admin', 'agent', 'member', 'viewer'));
+    CHECK (role IN ('owner', 'admin', 'agent', 'member', 'viewer', 'inactive'));
 
 CREATE TABLE IF NOT EXISTS public.clients (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
