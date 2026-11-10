@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import React, { useEffect, useState } from 'react';
+import { getPostLoginPath } from '../../src/lib/authPaths';
 import { getSupabaseClient } from '../../src/lib/supabase';
 
 function LoadingSpinner() {
@@ -47,11 +48,8 @@ export default function LoginPage() {
       });
       if (error) throw error;
       const requestedPath = new URLSearchParams(window.location.search).get('next');
-      const destination = requestedPath?.startsWith('/') && !requestedPath.startsWith('//')
-        ? requestedPath
-        : '/dashboard';
       isNavigating = true;
-      router.replace(destination);
+      router.replace(getPostLoginPath(requestedPath));
       router.refresh();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Sign in failed.');

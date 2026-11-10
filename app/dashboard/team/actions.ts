@@ -3,6 +3,11 @@
 import { createSupabaseAdminClient } from '../../../src/lib/supabase/admin';
 import { createSupabaseServerClient, requireOrganizationContext } from '../../../src/lib/supabase/server';
 
+export async function getCurrentOrganizationRole() {
+  const { role } = await requireOrganizationContext();
+  return role;
+}
+
 function getAppOrigin(): string {
   const configuredOrigin = process.env.NEXT_PUBLIC_APP_URL?.trim();
   if (!configuredOrigin) {
@@ -31,7 +36,7 @@ async function sendAgentReactivationEmail(email: string, organizationId: string)
 }
 
 export async function listOrganizationMembers() {
-  const { organizationId } = await requireOrganizationContext({ adminOnly: true });
+  const { organizationId } = await requireOrganizationContext({ ownerOnly: true });
   const admin = createSupabaseAdminClient();
   const { data: memberships, error: membershipError } = await admin
     .from('organization_memberships')
@@ -98,7 +103,7 @@ export async function inviteOrganizationAgent(email: string) {
     throw new Error('Enter a valid work email address.');
   }
 
-  const { organizationId, user } = await requireOrganizationContext({ adminOnly: true });
+  const { organizationId, user } = await requireOrganizationContext({ ownerOnly: true });
   if (user.email?.trim().toLowerCase() === normalizedEmail) {
     return { email: normalizedEmail, status: 'self' as const };
   }
@@ -215,7 +220,7 @@ export async function requestOrganizationAgentReactivation(userId: string) {
     throw new Error('Select a valid organization member.');
   }
 
-  const { organizationId, user } = await requireOrganizationContext({ adminOnly: true });
+  const { organizationId, user } = await requireOrganizationContext({ ownerOnly: true });
   if (user.id === userId) throw new Error('You cannot remove your own account.');
 
   const admin = createSupabaseAdminClient();
@@ -249,7 +254,7 @@ export async function deactivateOrganizationAgent(userId: string) {
     throw new Error('Select a valid organization member.');
   }
 
-  const { organizationId, user } = await requireOrganizationContext({ adminOnly: true });
+  const { organizationId, user } = await requireOrganizationContext({ ownerOnly: true });
   if (user.id === userId) throw new Error('You cannot remove your own account.');
 
   const admin = createSupabaseAdminClient();
@@ -270,7 +275,7 @@ export async function removeOrganizationAgent(userId: string) {
     throw new Error('Select a valid organization member.');
   }
 
-  const { organizationId, user } = await requireOrganizationContext({ adminOnly: true });
+  const { organizationId, user } = await requireOrganizationContext({ ownerOnly: true });
   if (user.id === userId) throw new Error('You cannot remove your own account.');
 
   const admin = createSupabaseAdminClient();
@@ -331,7 +336,7 @@ export async function restoreOrganizationAgent(recoveryId: string) {
     throw new Error('Select a valid removed agent.');
   }
 
-  const { organizationId } = await requireOrganizationContext({ adminOnly: true });
+  const { organizationId } = await requireOrganizationContext({ ownerOnly: true });
   const admin = createSupabaseAdminClient();
   const { data: recovery, error: recoveryError } = await admin
     .from('organization_agent_removals')

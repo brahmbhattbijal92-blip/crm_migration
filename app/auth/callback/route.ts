@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { getPostLoginPath } from '../../../src/lib/authPaths';
 import { createSupabaseServerClient } from '../../../src/lib/supabase/server';
 
 export async function GET(request: NextRequest) {
@@ -7,10 +8,7 @@ export async function GET(request: NextRequest) {
   const requestedOtpType = request.nextUrl.searchParams.get('type');
   const otpTypes = ['signup', 'invite', 'magiclink', 'recovery', 'email_change', 'email'] as const;
   const otpType = otpTypes.find((candidate) => candidate === requestedOtpType);
-  const requestedPath = request.nextUrl.searchParams.get('next');
-  const nextPath = requestedPath?.startsWith('/') && !requestedPath.startsWith('//')
-    ? requestedPath
-    : '/dashboard';
+  const nextPath = getPostLoginPath(request.nextUrl.searchParams.get('next'));
 
   if (code || (tokenHash && otpType)) {
     const supabase = await createSupabaseServerClient();

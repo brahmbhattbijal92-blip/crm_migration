@@ -38,6 +38,12 @@ describe('Supabase auth callback', () => {
     expect(response.headers.get('location')).toBe('https://crm-migration-three.vercel.app/dashboard');
   });
 
+  it('redirects team destinations to the dashboard after login', async () => {
+    const response = await GET(makeRequest('?code=test-code&next=%2Fdashboard%2Fteam'));
+
+    expect(response.headers.get('location')).toBe('https://crm-migration-three.vercel.app/dashboard');
+  });
+
   it('hands fragment-based email sessions to the browser completion page', async () => {
     const response = await GET(makeRequest('?next=%2Fdashboard'));
 

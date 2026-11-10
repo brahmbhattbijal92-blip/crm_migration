@@ -4,6 +4,6 @@ import { requireOrganizationContext } from '../../../src/lib/supabase/server';
 
 export default async function TeamLayout({ children }: { children: ReactNode }) {
   const { role } = await requireOrganizationContext();
-  if (!['owner', 'admin'].includes(role)) redirect('/dashboard');
+  if (role !== 'owner') redirect('/dashboard');
   return children;
 }

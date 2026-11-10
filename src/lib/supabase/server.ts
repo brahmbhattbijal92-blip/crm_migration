@@ -25,7 +25,7 @@ export async function createSupabaseServerClient() {
   });
 }
 
-export async function requireOrganizationContext(options: { adminOnly?: boolean; agentOrAdminOnly?: boolean } = {}) {
+export async function requireOrganizationContext(options: { adminOnly?: boolean; ownerOnly?: boolean; agentOrAdminOnly?: boolean } = {}) {
   const supabase = await createSupabaseServerClient();
   const { data: userResult, error: userError } = await supabase.auth.getUser();
   if (userError || !userResult.user) throw new Error('Sign in before using this feature.');
@@ -48,6 +48,9 @@ export async function requireOrganizationContext(options: { adminOnly?: boolean;
   if (membershipError || !membership) throw new Error('You are not a member of this organization.');
   const role = String(membership.role);
   if (role === 'inactive' || membership.removed_at) throw new Error('Your organization membership is inactive.');
+  if (options.ownerOnly && role !== 'owner') {
+    throw new Error('Organization owner access is required.');
+  }
   if (options.adminOnly && !['owner', 'admin'].includes(role)) {
     throw new Error('Organization owner or admin access is required.');
   }

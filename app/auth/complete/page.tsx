@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { completeOrganizationAgentReactivation } from '../../dashboard/team/actions';
+import { getPostLoginPath } from '../../../src/lib/authPaths';
 import { getSupabaseClient } from '../../../src/lib/supabase';
 
 type CompletionStep = 'checking' | 'code' | 'password';
@@ -25,9 +26,7 @@ export default function AuthCompletePage() {
     started.current = true;
 
     const requestedPath = new URLSearchParams(window.location.search).get('next');
-    nextPath.current = requestedPath?.startsWith('/') && !requestedPath.startsWith('//')
-      ? requestedPath
-      : '/dashboard';
+    nextPath.current = getPostLoginPath(requestedPath);
     const searchParams = new URLSearchParams(window.location.search);
     isReactivation.current = searchParams.get('flow') === 'reactivation';
     reactivationOrganizationId.current = searchParams.get('organization_id') ?? '';

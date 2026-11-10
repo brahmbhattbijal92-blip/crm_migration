@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import React, { useEffect, useState } from 'react';
+import { getCurrentOrganizationRole } from '../../app/dashboard/team/actions';
 import { getSupabaseClient } from '../lib/supabase';
 
 export default function AuthStatus() {
@@ -14,31 +15,21 @@ export default function AuthStatus() {
     let active = true;
     try {
       const supabase = getSupabaseClient();
-      async function updateUser(user: { id: string; email?: string } | null) {
-        if (!active) return;
+      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+        const user = session?.user;
         setEmail(user?.email ?? '');
         setCanManageTeam(false);
         if (!user) return;
 
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('default_organization_id')
-          .eq('user_id', user.id)
-          .maybeSingle();
-        if (!active || !profile?.default_organization_id) return;
-
-        const { data: membership } = await supabase
-          .from('organization_memberships')
-          .select('role')
-          .eq('organization_id', profile.default_organization_id)
-          .eq('user_id', user.id)
-          .maybeSingle();
-        if (active) setCanManageTeam(['owner', 'admin'].includes(String(membership?.role)));
-      }
-
-      supabase.auth.getUser().then(({ data }) => updateUser(data.user)).catch(() => undefined);
-      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-        void updateUser(session?.user ?? null);
+        window.setTimeout(() => {
+          void getCurrentOrganizationRole()
+            .then((role) => {
+              if (active) setCanManageTeam(role === 'owner');
+            })
+            .catch(() => {
+              if (active) setCanManageTeam(false);
+            });
+        }, 0);
       });
       return () => {
         active = false;
