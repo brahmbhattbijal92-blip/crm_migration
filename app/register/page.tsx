@@ -40,6 +40,7 @@ export default function RegisterPage() {
       if (error) throw error;
       if (data.user?.identities?.length === 0) {
         setIsExistingAccount(true);
+        setCanResendConfirmation(true);
         setSuccessMessage('An account with this email already exists. Sign in instead. If an owner deactivated your organization access, ask them to send a reactivation email from Team.');
         return;
       }
@@ -91,9 +92,10 @@ export default function RegisterPage() {
         {successMessage && (
           <div role="status" className="mt-5 space-y-3 border border-emerald-900 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-200">
             <p>{successMessage}</p>
-            {isExistingAccount ? (
+            {isExistingAccount && (
               <Link href="/login" className="inline-block border border-emerald-800 px-3 py-2 text-xs font-medium text-emerald-100 hover:bg-emerald-900/40">Go to sign in</Link>
-            ) : canResendConfirmation && (
+            )}
+            {canResendConfirmation && (
               <button type="button" disabled={isResending} onClick={() => void handleResendConfirmation()} className="border border-emerald-800 px-3 py-2 text-xs font-medium text-emerald-100 hover:bg-emerald-900/40 disabled:opacity-50">
                 {isResending ? 'Resending...' : 'Resend confirmation email'}
               </button>
