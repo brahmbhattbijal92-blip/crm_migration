@@ -47,24 +47,26 @@ export default function TeamPage() {
     return () => { active = false; };
   }, []);
 
-  async function handleInvite(event: React.FormEvent<HTMLFormElement>) {
+  function handleInvite(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsInviting(true);
     setErrorMessage('');
     setSuccessMessage('');
-    try {
-      const invitation = await inviteOrganizationAgent(email);
-      setEmail('');
-      setSuccessMessage(`Agent invitation sent to ${invitation.email}.`);
-      await refreshMembers();
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Agent invitation failed.');
-    } finally {
-      setIsInviting(false);
-    }
+    startTransition(async () => {
+      try {
+        const invitation = await inviteOrganizationAgent(email);
+        setEmail('');
+        setSuccessMessage(`Agent invitation sent to ${invitation.email}.`);
+        await refreshMembers();
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Agent invitation failed.');
+      } finally {
+        setIsInviting(false);
+      }
+    });
   }
 
-  async function handleSetAgentActive(member: TeamMember) {
+  function handleSetAgentActive(member: TeamMember) {
     const memberName = member.displayName || member.email || 'this agent';
     const isActive = member.role === 'inactive';
     const confirmation = isActive
@@ -75,15 +77,17 @@ export default function TeamPage() {
     setRemovingUserId(member.userId);
     setErrorMessage('');
     setSuccessMessage('');
-    try {
-      await setOrganizationAgentActive(member.userId, isActive);
-      setSuccessMessage(`${memberName} was ${isActive ? 'reactivated' : 'deactivated'} in the organization.`);
-      await refreshMembers();
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Agent status could not be changed.');
-    } finally {
-      setRemovingUserId(null);
-    }
+    startTransition(async () => {
+      try {
+        await setOrganizationAgentActive(member.userId, isActive);
+        setSuccessMessage(`${memberName} was ${isActive ? 'reactivated' : 'deactivated'} in the organization.`);
+        await refreshMembers();
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Agent status could not be changed.');
+      } finally {
+        setRemovingUserId(null);
+      }
+    });
   }
 
   return (
