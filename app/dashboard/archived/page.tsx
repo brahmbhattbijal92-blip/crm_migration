@@ -7,6 +7,7 @@ import {
   DashboardStorageProvider,
   useDashboardStorage,
   type ClientRecord,
+  type ClientSearchField,
 } from '../StorageContext';
 
 const CLIENT_PAGE_SIZE = 50;
@@ -79,6 +80,9 @@ const ArchivedClientRow = React.memo(function ArchivedClientRow({
 function ArchivedClientsContent() {
   const { dataService, preference } = useDashboardStorage();
   const [clients, setClients] = useState<ClientRecord[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [appliedSearchTerm, setAppliedSearchTerm] = useState('');
+  const [searchField, setSearchField] = useState<ClientSearchField>('all');
   const [loadedDataService, setLoadedDataService] = useState<typeof dataService | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -98,11 +102,16 @@ function ArchivedClientsContent() {
     return () => window.clearTimeout(timer);
   }, []);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setAppliedSearchTerm(searchTerm.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [searchTerm]);
+
   async function refreshArchivedClients() {
     setIsRefreshing(true);
     setErrorMessage('');
     try {
-      const page = await dataService.listClientPage(true, 0, CLIENT_PAGE_SIZE);
+      const page = await dataService.listClientPage(true, 0, CLIENT_PAGE_SIZE, appliedSearchTerm, searchField);
       setClients(page.items);
       setHasMore(page.hasMore);
       setPurgeReferenceTime(Date.now());
@@ -118,7 +127,7 @@ function ArchivedClientsContent() {
     setIsLoadingMore(true);
     setErrorMessage('');
     try {
-      const page = await dataService.listClientPage(true, clients.length, CLIENT_PAGE_SIZE);
+      const page = await dataService.listClientPage(true, clients.length, CLIENT_PAGE_SIZE, appliedSearchTerm, searchField);
       setClients((current) => {
         const existingIds = new Set(current.map((client) => client.id));
         return [...current, ...page.items.filter((client) => !existingIds.has(client.id))];
@@ -133,7 +142,8 @@ function ArchivedClientsContent() {
 
   useEffect(() => {
     let active = true;
-    dataService.listClientPage(true, 0, CLIENT_PAGE_SIZE)
+    setIsRefreshing(true);
+    dataService.listClientPage(true, 0, CLIENT_PAGE_SIZE, appliedSearchTerm, searchField)
       .then((page) => {
         if (active) {
           setClients(page.items);
@@ -147,9 +157,12 @@ function ArchivedClientsContent() {
           setErrorMessage(error instanceof Error ? error.message : 'Archived clients could not be loaded.');
           setLoadedDataService(dataService);
         }
+      })
+      .finally(() => {
+        if (active) setIsRefreshing(false);
       });
     return () => { active = false; };
-  }, [dataService]);
+  }, [appliedSearchTerm, dataService, searchField]);
 
   const restoreClient = useCallback(async (client: ClientRecord) => {
     setRestoringId(client.id);
@@ -227,6 +240,29 @@ function ArchivedClientsContent() {
             <p className="mt-1 text-sm text-zinc-500">Archived records remain stored until securely purged.</p>
           </div>
           <div className="flex items-center gap-3">
+            <label>
+              <span className="sr-only">Search archived clients</span>
+              <input
+                type="search"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Search clients"
+                className="w-44 border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500"
+              />
+            </label>
+            <label>
+              <span className="sr-only">Search archived clients by</span>
+              <select
+                value={searchField}
+                onChange={(event) => setSearchField(event.target.value as ClientSearchField)}
+                className="border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-300 outline-none focus:border-emerald-500"
+              >
+                <option value="all">All fields</option>
+                <option value="name">Name</option>
+                <option value="email">Email</option>
+                <option value="company">Company</option>
+              </select>
+            </label>
             <span className="border border-zinc-700 px-2 py-1 text-xs uppercase text-zinc-400">{preference}</span>
             <button
               type="button"

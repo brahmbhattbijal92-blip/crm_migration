@@ -160,6 +160,8 @@ export interface PageResult<T> {
   hasMore: boolean;
 }
 
+export type ClientSearchField = 'all' | 'name' | 'email' | 'company';
+
 export interface ClientFinancialSummary {
   invoiceCount: number;
   overdueInvoiceCount: number;
@@ -169,7 +171,7 @@ export interface ClientFinancialSummary {
 
 export interface IDataService {
   readonly preference: StoragePreference;
-  listClientPage(archived: boolean, offset: number, limit: number): Promise<PageResult<ClientRecord>>;
+  listClientPage(archived: boolean, offset: number, limit: number, searchTerm?: string, searchField?: ClientSearchField): Promise<PageResult<ClientRecord>>;
   listClients(): Promise<ClientRecord[]>;
   saveClient(input: ClientInput): Promise<ClientRecord>;
   updateClient(id: string, input: ClientInput): Promise<ClientRecord>;
@@ -208,6 +210,23 @@ function paginateRows<T>(rows: T[], offset: number, limit: number): PageResult<T
   const { offset: pageOffset, limit: pageLimit } = normalizePageBounds(offset, limit);
   const page = rows.slice(pageOffset, pageOffset + pageLimit + 1);
   return { items: page.slice(0, pageLimit), hasMore: page.length > pageLimit };
+}
+
+function matchesClientSearch(client: ClientRecord, term: string, field: ClientSearchField): boolean {
+  if (!term) return true;
+  const searchText = term.toLocaleLowerCase();
+  const values = field === 'name'
+    ? [`${client.firstName} ${client.lastName}`]
+    : field === 'email'
+      ? [client.email]
+      : field === 'company'
+        ? [client.company]
+        : [`${client.firstName} ${client.lastName}`, client.email, client.company];
+  return values.some((value) => value.toLocaleLowerCase().includes(searchText));
+}
+
+function escapePostgrestValue(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
 interface DirectoryHandleLike {
@@ -542,9 +561,10 @@ async function getActiveOrganizationId(): Promise<string> {
 class IndexedDbDataService implements IDataService {
   readonly preference = 'local' as const;
 
-  async listClientPage(archived: boolean, offset: number, limit: number): Promise<PageResult<ClientRecord>> {
+  async listClientPage(archived: boolean, offset: number, limit: number, searchTerm = '', searchField: ClientSearchField = 'all'): Promise<PageResult<ClientRecord>> {
     const rows = archived ? await this.listArchivedClients() : await this.listClients();
-    return paginateRows(rows, offset, limit);
+    const filteredRows = rows.filter((client) => matchesClientSearch(client, searchTerm.trim(), searchField));
+    return paginateRows(filteredRows, offset, limit);
   }
 
   async listClients(): Promise<ClientRecord[]> {
@@ -957,14 +977,31 @@ class IndexedDbDataService implements IDataService {
 class SupabaseDataService implements IDataService {
   readonly preference = 'cloud' as const;
 
-  async listClientPage(archived: boolean, offset: number, limit: number): Promise<PageResult<ClientRecord>> {
+  async listClientPage(archived: boolean, offset: number, limit: number, searchTerm = '', searchField: ClientSearchField = 'all'): Promise<PageResult<ClientRecord>> {
     const { offset: pageOffset, limit: pageLimit } = normalizePageBounds(offset, limit);
     let query = getSupabaseClient()
       .from('clients')
       .select('id, first_name, last_name, email, company, status, archived_at, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at, deleted_at, assigned_agent_id');
-    query = archived
-      ? query.or('status.eq.archived,deleted_at.not.is.null')
-      : query.is('deleted_at', null);
+    const term = searchTerm.trim();
+    let searchPredicate = '';
+    if (term) {
+      const pattern = escapePostgrestValue(`%${term.replace(/[\\%_]/g, '\\$&')}%`);
+      if (searchField === 'name') {
+        searchPredicate = `or(first_name.ilike.${pattern},last_name.ilike.${pattern})`;
+      } else if (searchField === 'email' || searchField === 'company') {
+        searchPredicate = `${searchField}.ilike.${pattern}`;
+      } else {
+        searchPredicate = `or(first_name.ilike.${pattern},last_name.ilike.${pattern},email.ilike.${pattern},company.ilike.${pattern})`;
+      }
+    }
+    if (archived) {
+      query = query.or(term
+        ? `and(or(status.eq.archived,deleted_at.not.is.null),${searchPredicate})`
+        : 'status.eq.archived,deleted_at.not.is.null');
+    } else {
+      query = query.is('deleted_at', null);
+      if (term) query = query.or(searchPredicate);
+    }
     const { data, error } = await query
       .order('updated_at', { ascending: false })
       .order('id', { ascending: false })

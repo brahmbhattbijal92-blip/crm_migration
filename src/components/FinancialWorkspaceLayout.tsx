@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import type { ClientRecord, GrantBalance } from '../../app/dashboard/StorageContext';
+import type { ClientRecord, ClientSearchField, GrantBalance } from '../../app/dashboard/StorageContext';
 import type { StoragePreference } from '../context/StorageContext';
 
 export interface GlobalControlHeaderProps {
@@ -74,6 +74,10 @@ export function FinancialWorkspaceLayout({
 
 export interface ClientSidebarProps {
   clients: ClientRecord[];
+  searchTerm: string;
+  searchField: ClientSearchField;
+  onSearchTermChange(value: string): void;
+  onSearchFieldChange(value: ClientSearchField): void;
   selectedClientId: string;
   onSelect(clientId: string): void;
   onNewClient(): void;
@@ -86,6 +90,10 @@ export interface ClientSidebarProps {
 
 export function ClientSidebar({
   clients,
+  searchTerm,
+  searchField,
+  onSearchTermChange,
+  onSearchFieldChange,
   selectedClientId,
   onSelect,
   onNewClient,
@@ -107,6 +115,29 @@ export function ClientSidebar({
         <button type="button" onClick={onNewClient} className="w-full bg-emerald-500 px-3 py-2 text-left text-sm font-semibold text-zinc-950 hover:bg-emerald-400">
           + New client
         </button>
+        <label className="block">
+          <span className="sr-only">Search clients</span>
+          <input
+            type="search"
+            value={searchTerm}
+            onChange={(event) => onSearchTermChange(event.target.value)}
+            placeholder="Search clients"
+            className="w-full border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500"
+          />
+        </label>
+        <label className="block">
+          <span className="sr-only">Search by</span>
+          <select
+            value={searchField}
+            onChange={(event) => onSearchFieldChange(event.target.value as ClientSearchField)}
+            className="w-full border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs text-zinc-300 outline-none focus:border-emerald-500"
+          >
+            <option value="all">All fields</option>
+            <option value="name">Name</option>
+            <option value="email">Email</option>
+            <option value="company">Company</option>
+          </select>
+        </label>
       </div>
       <ul className="max-h-[70vh] divide-y divide-zinc-800 overflow-y-auto">
         {clients.map((client) => (

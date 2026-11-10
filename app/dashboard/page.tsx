@@ -20,6 +20,7 @@ import {
   type ClientInput,
   type ClientFinancialSummary as ClientFinancialSummaryData,
   type ClientRecord,
+  type ClientSearchField,
   type DocumentRecord,
   type GovernanceNotification,
   type GrantBalance,
@@ -111,6 +112,9 @@ function DashboardContent() {
   const isCloudStorageConfigured = getSupabasePublicConfig() !== null;
   const [clients, setClients] = useState<ClientRecord[]>([]);
   const [archivedClients, setArchivedClients] = useState<ClientRecord[]>([]);
+  const [clientSearchTerm, setClientSearchTerm] = useState('');
+  const [appliedClientSearchTerm, setAppliedClientSearchTerm] = useState('');
+  const [clientSearchField, setClientSearchField] = useState<ClientSearchField>('all');
   const [assignmentAgents, setAssignmentAgents] = useState<AssignmentAgent[]>([]);
   const [canAssignClients, setCanAssignClients] = useState(false);
   const [isAssigningClient, setIsAssigningClient] = useState(false);
@@ -163,6 +167,11 @@ function DashboardContent() {
   }, []);
 
   useEffect(() => {
+    const timer = window.setTimeout(() => setAppliedClientSearchTerm(clientSearchTerm.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [clientSearchTerm]);
+
+  useEffect(() => {
     if (!errorMessage || !errorAlertRef.current) return;
     const frameId = window.requestAnimationFrame(() => {
       errorAlertRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -189,8 +198,8 @@ function DashboardContent() {
       setErrorMessage('');
       try {
         const [clientPage, archivedPage, notificationRows] = await Promise.all([
-          dataService.listClientPage(false, 0, DASHBOARD_PAGE_SIZE),
-          dataService.listClientPage(true, 0, DASHBOARD_PAGE_SIZE),
+          dataService.listClientPage(false, 0, DASHBOARD_PAGE_SIZE, appliedClientSearchTerm, clientSearchField),
+          dataService.listClientPage(true, 0, DASHBOARD_PAGE_SIZE, appliedClientSearchTerm, clientSearchField),
           dataService.listGovernanceNotifications(),
         ]);
         if (!active) return;
@@ -211,7 +220,7 @@ function DashboardContent() {
     }
     void loadDashboard();
     return () => { active = false; };
-  }, [dataService, isReady]);
+  }, [appliedClientSearchTerm, clientSearchField, dataService, isReady]);
 
   useEffect(() => {
     if (!isReady || preference !== 'cloud') {
@@ -276,8 +285,8 @@ function DashboardContent() {
     setErrorMessage('');
     try {
       const [clientPage, archivedPage, notificationRows] = await Promise.all([
-        dataService.listClientPage(false, 0, DASHBOARD_PAGE_SIZE),
-        dataService.listClientPage(true, 0, DASHBOARD_PAGE_SIZE),
+        dataService.listClientPage(false, 0, DASHBOARD_PAGE_SIZE, appliedClientSearchTerm, clientSearchField),
+        dataService.listClientPage(true, 0, DASHBOARD_PAGE_SIZE, appliedClientSearchTerm, clientSearchField),
         dataService.listGovernanceNotifications(),
       ]);
       setClients(clientPage.items);
@@ -324,7 +333,7 @@ function DashboardContent() {
     try {
       const archived = showArchivedClients;
       const currentRows = archived ? archivedClients : clients;
-      const page = await dataService.listClientPage(archived, currentRows.length, DASHBOARD_PAGE_SIZE);
+      const page = await dataService.listClientPage(archived, currentRows.length, DASHBOARD_PAGE_SIZE, appliedClientSearchTerm, clientSearchField);
       if (archived) {
         setArchivedClients((current) => [...current, ...page.items]);
         setArchivedClientHasMore(page.hasMore);
@@ -430,7 +439,7 @@ function DashboardContent() {
     try {
       await dataService.archiveClient(client.id);
       setClients((current) => current.filter((entry) => entry.id !== client.id));
-      const archivedPage = await dataService.listClientPage(true, 0, DASHBOARD_PAGE_SIZE);
+      const archivedPage = await dataService.listClientPage(true, 0, DASHBOARD_PAGE_SIZE, appliedClientSearchTerm, clientSearchField);
       setArchivedClients(archivedPage.items);
       setArchivedClientHasMore(archivedPage.hasMore);
       setSelectedClientId((current) => current === client.id ? '' : current);
@@ -446,7 +455,7 @@ function DashboardContent() {
     try {
       await dataService.restoreClient(client.id);
       setArchivedClients((current) => current.filter((entry) => entry.id !== client.id));
-      const activePage = await dataService.listClientPage(false, 0, DASHBOARD_PAGE_SIZE);
+      const activePage = await dataService.listClientPage(false, 0, DASHBOARD_PAGE_SIZE, appliedClientSearchTerm, clientSearchField);
       setClients(activePage.items);
       setClientHasMore(activePage.hasMore);
       setShowArchivedClients(false);
@@ -682,6 +691,10 @@ function DashboardContent() {
       clientSidebar={(
         <ClientSidebar
           clients={visibleClients}
+          searchTerm={clientSearchTerm}
+          searchField={clientSearchField}
+          onSearchTermChange={setClientSearchTerm}
+          onSearchFieldChange={setClientSearchField}
           selectedClientId={selectedClientId}
           onSelect={(clientId) => { setSelectedClientId(clientId); resetForm(); }}
           onNewClient={handleNewClient}

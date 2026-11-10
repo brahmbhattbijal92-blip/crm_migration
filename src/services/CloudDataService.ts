@@ -250,29 +250,6 @@ export class CloudDataService extends DataService {
     const offset = Math.max(0, query.offset ?? 0);
     const term = query.term.trim();
     const supabase = getSupabaseClient();
-
-    if (term) {
-      const organizationId = await getActiveOrganizationId(supabase);
-      const { data: userResult, error: userError } = await supabase.auth.getUser();
-      if (userError || !userResult.user) {
-        throw new DataServiceError('Sign in before searching client records.', 'CLOUD_AUTH_REQUIRED', 'WARNING', userError);
-      }
-      const { data: membership, error: membershipError } = await supabase
-        .from('organization_memberships')
-        .select('role')
-        .eq('organization_id', organizationId)
-        .eq('user_id', userResult.user.id)
-        .maybeSingle();
-      if (membershipError) throwSupabaseError(membershipError, 'client search authorization');
-      if (membership?.role === 'agent') {
-        throw new DataServiceError(
-          'Client search is disabled for agent accounts.',
-          'AGENT_CLIENT_SEARCH_DISABLED',
-          'WARNING'
-        );
-      }
-    }
-
     let request = supabase
       .from(CLIENT_TABLE)
       .select(CLIENT_COLUMNS, { count: 'exact' })

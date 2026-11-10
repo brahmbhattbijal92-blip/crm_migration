@@ -6,6 +6,7 @@ import {
   DashboardStorageProvider,
   useDashboardStorage,
   type ClientRecord,
+  type ClientSearchField,
 } from '../StorageContext';
 
 const INACTIVITY_OPTIONS = [30, 60, 90, 180, 365] as const;
@@ -70,6 +71,9 @@ const InactiveAccountRow = React.memo(function InactiveAccountRow({
 function DataLifecycleContent() {
   const { dataService, preference } = useDashboardStorage();
   const [accounts, setAccounts] = useState<ClientRecord[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [appliedSearchTerm, setAppliedSearchTerm] = useState('');
+  const [searchField, setSearchField] = useState<ClientSearchField>('all');
   const [inactiveDays, setInactiveDays] = useState<number>(90);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [loadedDataService, setLoadedDataService] = useState<typeof dataService | null>(null);
@@ -94,11 +98,16 @@ function DataLifecycleContent() {
   const allVisibleSelected = inactiveAccounts.length > 0 && inactiveAccounts.every((account) => selectedIds.has(account.id));
   const selectedCount = inactiveAccounts.reduce((count, account) => count + Number(selectedIds.has(account.id)), 0);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setAppliedSearchTerm(searchTerm.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [searchTerm]);
+
   async function loadAccounts() {
     setIsRefreshing(true);
     setErrorMessage('');
     try {
-      const page = await dataService.listClientPage(false, 0, CLIENT_PAGE_SIZE);
+      const page = await dataService.listClientPage(false, 0, CLIENT_PAGE_SIZE, appliedSearchTerm, searchField);
       setAccounts(page.items);
       setHasMoreAccounts(page.hasMore);
       setSelectedIds(new Set());
@@ -117,7 +126,7 @@ function DataLifecycleContent() {
     setIsLoadingMoreAccounts(true);
     setErrorMessage('');
     try {
-      const page = await dataService.listClientPage(false, accounts.length, CLIENT_PAGE_SIZE);
+      const page = await dataService.listClientPage(false, accounts.length, CLIENT_PAGE_SIZE, appliedSearchTerm, searchField);
       setAccounts((current) => {
         const existingIds = new Set(current.map((account) => account.id));
         return [...current, ...page.items.filter((account) => !existingIds.has(account.id))];
@@ -132,7 +141,9 @@ function DataLifecycleContent() {
 
   useEffect(() => {
     let active = true;
-    dataService.listClientPage(false, 0, CLIENT_PAGE_SIZE)
+    setIsRefreshing(true);
+    setSelectedIds(new Set());
+    dataService.listClientPage(false, 0, CLIENT_PAGE_SIZE, appliedSearchTerm, searchField)
       .then((page) => {
         if (!active) return;
         setAccounts(page.items);
@@ -149,9 +160,12 @@ function DataLifecycleContent() {
           setErrorMessage(error instanceof Error ? error.message : 'Inactive accounts could not be loaded.');
           setLoadedDataService(dataService);
         }
+      })
+      .finally(() => {
+        if (active) setIsRefreshing(false);
       });
     return () => { active = false; };
-  }, [dataService]);
+  }, [appliedSearchTerm, dataService, searchField]);
 
   const toggleAccount = useCallback((id: string) => {
     setSelectedIds((current) => {
@@ -274,6 +288,35 @@ function DataLifecycleContent() {
             <p className="mt-1 text-sm text-zinc-500">Review baseline activity before taking lifecycle action.</p>
           </div>
           <div className="flex flex-wrap items-end gap-3">
+            <label className="space-y-1.5">
+              <span className="block text-xs text-zinc-400">Search accounts</span>
+              <input
+                type="search"
+                value={searchTerm}
+                onChange={(event) => {
+                  setSearchTerm(event.target.value);
+                  setSelectedIds(new Set());
+                }}
+                placeholder="Name, email, company"
+                className="w-48 border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500"
+              />
+            </label>
+            <label className="space-y-1.5">
+              <span className="block text-xs text-zinc-400">Search by</span>
+              <select
+                value={searchField}
+                onChange={(event) => {
+                  setSearchField(event.target.value as ClientSearchField);
+                  setSelectedIds(new Set());
+                }}
+                className="border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-emerald-500"
+              >
+                <option value="all">All fields</option>
+                <option value="name">Name</option>
+                <option value="email">Email</option>
+                <option value="company">Company</option>
+              </select>
+            </label>
             <label htmlFor="inactivity-days" className="space-y-1.5">
               <span className="block text-xs text-zinc-400">Inactive for at least</span>
               <select

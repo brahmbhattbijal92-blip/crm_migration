@@ -56,12 +56,12 @@ function mockSupabaseResult(result: SupabaseResult) {
   return { from, query };
 }
 
-function mockSearchSupabaseResult(result: SupabaseResult, role = 'owner') {
+function mockSearchSupabaseResult(result: SupabaseResult) {
   const profileQuery = createQuery({
     data: { default_organization_id: 'organization-1' },
     error: null,
   });
-  const membershipQuery = createQuery({ data: { role }, error: null });
+  const membershipQuery = createQuery({ data: { role: 'owner' }, error: null });
   const clientQuery = createQuery(result);
   const from = vi.fn((table: string) => {
     if (table === 'profiles') return profileQuery;
@@ -282,16 +282,6 @@ describe('CloudDataService fetch operations', () => {
       code: '42501',
       originalError: supabaseError,
     });
-  });
-
-  it('disables text client searches for agents before querying clients', async () => {
-    const { from } = mockSearchSupabaseResult({ data: null, error: null }, 'agent');
-
-    await expect(service.searchRecords({ term: 'Ada', limit: 25 })).rejects.toMatchObject({
-      code: 'AGENT_CLIENT_SEARCH_DISABLED',
-      message: 'Client search is disabled for agent accounts.',
-    });
-    expect(from).not.toHaveBeenCalledWith('clients');
   });
 
   it('reports when the client assignment migration is missing', async () => {
