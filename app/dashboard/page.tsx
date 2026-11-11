@@ -1259,7 +1259,9 @@ function DashboardContent() {
                       <article key={notification.id} className="border-b border-zinc-800/70 pb-3 last:border-0">
                         <div className="flex items-center justify-between gap-3">
                           <p className="text-sm text-zinc-200">{notification.title}</p>
-                          <span className="shrink-0 text-[10px] uppercase text-emerald-300">{notification.deliveryStatus}</span>
+                          <span className={`shrink-0 text-[10px] uppercase ${notification.deliveryStatus === 'sent' ? 'text-emerald-300' : notification.deliveryStatus === 'failed' ? 'text-rose-300' : 'text-amber-300'}`}>
+                            {notification.deliveryStatus}
+                          </span>
                         </div>
                         <p className="mt-1 text-xs text-zinc-500">{notification.message}</p>
                         <p className="mt-1 text-[10px] text-zinc-600">

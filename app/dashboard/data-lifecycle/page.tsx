@@ -297,7 +297,7 @@ function DataLifecycleContent() {
           <div className="flex flex-col justify-between gap-3 border-b border-zinc-800 px-5 py-4 sm:flex-row sm:items-center">
             <div>
               <h2 className="text-base font-semibold">Account activity baseline</h2>
-              <p className="mt-1 text-xs text-zinc-500">Creation and latest interaction timestamps determine inactivity.</p>
+              <p className="mt-1 text-xs text-zinc-500">Uses the client record's last update; opening a profile or adding an invoice, grant, or document does not necessarily reset it.</p>
             </div>
             <button
               type="button"
@@ -357,7 +357,7 @@ function DataLifecycleContent() {
               <button
                 type="button"
                 onClick={() => void loadMoreAccounts()}
-                disabled={isLoadingMoreAccounts || isReviewingPurge || isPurging}
+                disabled={isLoadingMoreAccounts || isLoading}
                 className="border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
               >
                 {isLoadingMoreAccounts ? 'Loading...' : 'Load more accounts'}

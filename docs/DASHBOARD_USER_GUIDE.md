@@ -54,12 +54,13 @@ Use the **Workspace** selector in the dashboard header.
 
 - Enter **Passport expiry** or **Visa expiry** on the Client profile and save it. A date appearing in the **Expiry review queue** means that date exists on a currently loaded client; it is not itself a reminder event.
 - The queue and **Agent reminder audit** are under **Purge and data governance** on the main Dashboard. They are not on the **Inactive accounts** Data Lifecycle page.
-- The Vercel cron worker runs daily at **08:00 UTC**. It creates a database reminder only when a non-archived Cloud client expires exactly 90, 60, or 30 UTC calendar days after that run. It does not trigger for every date inside those windows.
+- The Vercel cron worker runs daily at **08:00 UTC**. It creates a reminder only when a non-archived Cloud client expires exactly 90, 60, or 30 UTC calendar days after that run. It emails the authorized recipients and stores an audit row; it does not trigger for every date inside those windows.
 - The worker does not backfill a notice window that has already passed. If an expiry date is entered after its 30-day notice date, no late 30-day event is generated.
-- Reminder rows are marked **simulated**. This feature records an audit event; it does **not** send an email, SMS, browser push, or pop-up. The panel displays the newest 20 events.
-- The worker reads Cloud Supabase records only. Dates entered in Local mode are not scanned by the server worker and will not produce its reminder rows. Local mode has a separate IndexedDB notification store, but the scheduled worker does not write into it.
+- The audit panel displays the newest 20 events and their delivery status: **sent**, **failed**, or **queued**. A sent status means the SMTP server accepted the message; it does not guarantee inbox delivery. Recent queued/failed events are retried by later daily runs for up to seven days.
+- The worker emails organization owners/admins and agents who can access that client (assigned agent, or its creator while unassigned). The message includes the client name, document type, and expiry date. No user needs to be signed in at the time of the run.
+- The worker reads Cloud Supabase records only. Dates entered in Local mode are not scanned by the server worker and will not produce its reminder rows.
 - For an expiry on **20 Nov 2026**, the 90/60/30-day run dates are **22 Aug, 21 Sep, and 21 Oct 2026**. On **11 Nov 2026** the expiry is only 9 days away, so no new reminder is expected from this worker.
-- The worker requires `NEXT_PUBLIC_SUPABASE_URL`, server-only `SUPABASE_SERVICE_ROLE_KEY`, and `CRON_SECRET` in the Vercel production environment. Check Vercel Cron/Function logs for the daily invocation and response. `matchingExpirations` should be nonzero on a matching date; 503 indicates missing worker configuration, 401 indicates a secret mismatch, and 500 indicates a worker/database failure.
+- The worker requires `NEXT_PUBLIC_SUPABASE_URL`, server-only `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET`, `NEXT_PUBLIC_APP_URL`, and `REMINDER_SMTP_HOST`, `REMINDER_SMTP_PORT`, `REMINDER_SMTP_USER`, `REMINDER_SMTP_PASSWORD`, and `REMINDER_EMAIL_FROM` in Vercel Production environment variables. Never prefix SMTP credentials with `NEXT_PUBLIC_`. Check Vercel Cron/Function logs for `matchingExpirations`, `emailsSent`, and `emailsFailed`; 503 indicates missing cron secret, 401 indicates a secret mismatch, and 500 indicates a worker/database failure.
 
 ## 6. Inactive Accounts and Data Lifecycle
 
