@@ -34,6 +34,6 @@ For `DATABASE_URL` TLS errors such as `SELF_SIGNED_CERT_IN_CHAIN`, download the 
 
 ## Expiration reminder worker
 
-The `/api/cron/expiration-reminders` route is scheduled by `vercel.json` to run daily at 08:00 UTC. Configure server-only `CRON_SECRET` and `SUPABASE_SERVICE_ROLE_KEY` values in the deployment environment. The worker records idempotent simulated notifications for organization owners, admins, and agents exactly 90, 60, and 30 UTC calendar days before passport or visa expiry. It does not send email or SMS.
+The `/api/cron/expiration-reminders` route is scheduled by `vercel.json` to run daily at 08:00 UTC. Configure `NEXT_PUBLIC_SUPABASE_URL`, server-only `CRON_SECRET`, and `SUPABASE_SERVICE_ROLE_KEY` in the Vercel production environment. The worker scans Cloud Supabase clients only and records idempotent simulated notifications for eligible organization members exactly 90, 60, and 30 UTC calendar days before passport or visa expiry. It skips archived/deleted clients and does not send email or SMS. The audit appears on the main Dashboard under **Purge and data governance**; Local-mode dates are not scanned.
 
-The dashboard provides an expiry review queue and reminder audit. No records are purged automatically; define and approve an organization retention policy before implementing destructive purge behavior.
+The dashboard provides an expiry review queue and reminder audit. The Data Lifecycle page is an inactivity review and CSV export tool. To purge a client, archive it and use **Archived clients** after the 90-day retention period; active or unpaid invoices block purge. No records are purged automatically.

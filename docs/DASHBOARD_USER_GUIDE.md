@@ -1,6 +1,6 @@
 # CRM Migration Dashboard: User Guide
 
-This guide explains the dashboard in everyday language. The application still needs real Supabase settings and the schema applied before live organization sign-in and Cloud storage can work.
+This guide explains the current dashboard behavior in everyday language. Cloud features require the deployed Supabase project to have the application migrations and environment settings configured. Local records are stored in the browser and are separate from Cloud records.
 
 ## 1. Sign In and Open Your Organization
 
@@ -13,21 +13,69 @@ If the page says the authentication service is not configured, ask the administr
 
 ## 2. Choose Where Your Records Live
 
-Use the **Storage** menu in the dashboard header.
+Use the **Workspace** selector in the dashboard header.
 
 - **Local** keeps records in this browser on this device, under your signed-in account. Other team members do not see them.
 - **Cloud** keeps records in your organization's shared workspace. Access depends on your account and organization membership.
 - The app asks before switching. Local and Cloud records are separate; switching does not copy or merge them.
 - If Cloud is unavailable or disabled, ask your administrator to check the project setup.
 
+### What “Local” means
+
+- Local client, invoice, grant, document-metadata, and reminder records are stored in **IndexedDB**, a browser database. They are not stored in the browser history list.
+- The Local/Cloud choice itself is saved in `localStorage`. This is a small preference, not the client database.
+- Local data is scoped to the signed-in user and the exact website origin. Use the same browser profile, website address, and signed-in account to see it again. A different browser, profile, device, or deployment URL has a separate Local database.
+- Browser-history-only cleanup normally removes visited URLs, not IndexedDB. Clearing the site's cookies or site data, resetting/removing the browser profile, or storage eviction can delete Local records. Signing out or switching to Cloud does not copy or delete Local records.
+- In Local mode, document metadata is in IndexedDB, but document file bytes are saved in a folder selected with **Choose local folder**. The browser remembers that folder permission and can ask you to grant it again. Clearing website data may remove the remembered folder handle, but does not necessarily remove files already in the folder.
+- Local data is not a full backup and is not encrypted by this app as a separate database. Anyone with access to the same unlocked browser profile/device may be able to access it. There is currently no complete Local backup-and-restore button.
+
 ## 3. Work with Clients
 
 - Use **Client profile** to add or edit a client's name, contact details, company, and passport or visa dates.
 - Select a client in the monitoring list to load that client's documents and financial records.
-- Use **Archive** to remove a client from the active list while keeping its history.
-- Archived clients show their archive date and purge eligibility. Purge is blocked until the 90-day retention period has passed and invoice checks are clear. Permanent purge cannot be undone.
+- Use **Archive client** to hide a client from the active list while keeping its history. Use **Show archived** to switch the sidebar to archived records; the action then becomes **Restore client**.
+- Archived clients show the archive date and purge eligibility. From **Archived clients**, **Restore** returns the record to the active list. **Permanently purge** is enabled after 90 days archived, subject to invoice and attachment checks. Purging cannot be undone.
 
-## 4. Grants and Invoices
+## 4. Dashboard Buttons and Forms
+
+- **Workspace** switches between Local Storage Mode and Cloud Sync Mode. It changes which database future reads and writes use; it does not copy, merge, or migrate records.
+- **+ New client** opens a blank client form. **Add client** saves it; **Edit profile** loads a selected client into the form; **Save changes** updates it; **Cancel edit** discards unsaved edits.
+- **Search clients** filters the sidebar. **Search by** chooses All fields, Name, Email, or Company. **Load more clients** fetches the next page.
+- In Cloud mode, an owner/admin may use **Assigned agent** to assign or unassign a client.
+- **Add grant entry** opens the grant form. Enter source, allocation date, positive amount, three-letter currency, and optional reference/description. Balances are shown separately by currency.
+- **Add invoice** opens the invoice form. Add its number, positive amount, currency, and optional due date. Available grant funds in the same currency are applied. **Record payment** adds a payment no larger than the amount due.
+- In Local mode, choose **Choose local folder** before staging a document. Select a client and file, then choose **Stage document**. In Cloud mode, files go to the private Supabase bucket. **Load more documents**, **Load more invoices**, and **Load more grant entries** fetch additional rows.
+- **Archive client** retains the client and related records. For an archived client, use **Restore client**. **Purge client** is available only when an archived record has reached its eligibility date; it opens the secure purge flow described below.
+- **Team** is shown to the organization owner. **Sign out** ends the Supabase session; it does not erase Local records.
+- **Data lifecycle** opens the inactivity report. **Refresh data** reloads dashboard records. **Global Page Search** jumps to dashboard features and pages.
+- **Share selected client** sends the selected client's supported profile fields temporarily to the approved portal browser extension. It does not submit the external form; review and submit it yourself.
+
+## 5. Expiry Review and Reminders
+
+- Enter **Passport expiry** or **Visa expiry** on the Client profile and save it. A date appearing in the **Expiry review queue** means that date exists on a currently loaded client; it is not itself a reminder event.
+- The queue and **Agent reminder audit** are under **Purge and data governance** on the main Dashboard. They are not on the **Inactive accounts** Data Lifecycle page.
+- The Vercel cron worker runs daily at **08:00 UTC**. It creates a database reminder only when a non-archived Cloud client expires exactly 90, 60, or 30 UTC calendar days after that run. It does not trigger for every date inside those windows.
+- The worker does not backfill a notice window that has already passed. If an expiry date is entered after its 30-day notice date, no late 30-day event is generated.
+- Reminder rows are marked **simulated**. This feature records an audit event; it does **not** send an email, SMS, browser push, or pop-up. The panel displays the newest 20 events.
+- The worker reads Cloud Supabase records only. Dates entered in Local mode are not scanned by the server worker and will not produce its reminder rows. Local mode has a separate IndexedDB notification store, but the scheduled worker does not write into it.
+- For an expiry on **20 Nov 2026**, the 90/60/30-day run dates are **22 Aug, 21 Sep, and 21 Oct 2026**. On **11 Nov 2026** the expiry is only 9 days away, so no new reminder is expected from this worker.
+- The worker requires `NEXT_PUBLIC_SUPABASE_URL`, server-only `SUPABASE_SERVICE_ROLE_KEY`, and `CRON_SECRET` in the Vercel production environment. Check Vercel Cron/Function logs for the daily invocation and response. `matchingExpirations` should be nonzero on a matching date; 503 indicates missing worker configuration, 401 indicates a secret mismatch, and 500 indicates a worker/database failure.
+
+## 6. Inactive Accounts and Data Lifecycle
+
+- Open **Data Lifecycle** to review active client records whose **last interaction** is older than the selected **Inactive for at least** threshold. This is based on activity, not passport/visa expiry.
+- **Search accounts** filters by text; **Search by** chooses All fields, Name, Email, or Company. **Inactive for at least** chooses 30, 60, 90, 180, or 365 days. **Refresh** reloads the report, and **Load more accounts** adds the next page.
+- Select rows or **Select all visible inactive accounts**, then choose **Export selected** to download a CSV of the selected account fields. The CSV is an inactivity report, not a full backup.
+- **Open archived clients** takes you to the supported restore/purge workflow. To purge, first archive the client from the main Dashboard, keep it archived for 90 days, then use **Permanently purge** on the Archived clients page. Purge is blocked if active/unpaid invoices remain. In Local mode, access to the selected document folder must also be available.
+- The secure purge confirmation lists the affected records and attachments. **Cancel** stops; **Permanently purge** deletes the selected archived client and dependent data from the selected storage domain and removes associated files. This is irreversible.
+
+## 7. Team Access and Credentials
+
+- On **Team access**, enter an email and choose **Invite agent**. **Deactivate agent** stops access but retains the membership. **Send reactivation email** sends a verification code to an inactive agent.
+- **Remove agent** removes organization access with a 30-day recovery period. In **Removed agents**, **Restore / re-invite** restores the original account when possible; **Delete account permanently** deletes the Supabase account and organization memberships. It is owner-only and refuses accounts still belonging to another organization.
+- The **Credentials vault** is Cloud-only. **Reveal** sends an 8-digit verification code to the signed-in user's Supabase Auth email. Enter the code in the dialog; the revealed username/password are hidden again after 30 seconds. **Resend** is subject to the 60-second cooldown and Supabase Auth rate limits. Vault secrets remain masked until verification succeeds.
+
+## 8. Grants and Invoices
 
 ### Add Grant Funds
 
@@ -42,13 +90,13 @@ Use the **Storage** menu in the dashboard header.
 - The invoice list shows the total, amount covered by grants, and amount still due.
 - Use **Record payment** to enter money received. The app records the payment and reduces the amount due. The invoice is marked paid only when the remaining balance reaches zero.
 
-## 5. Documents and Other Tools
+## 9. Documents and Other Tools
 
 - **Document staging:** Local mode saves file contents to a folder you choose. Cloud mode uses the organization's private document storage. The browser asks for folder access in Local mode.
 - **Team access:** Only the organization owner can open Team access, review members, and invite agents. Agents do not have a Team menu or Team page access.
-- **Data lifecycle:** Review inactive accounts, export the selected inactivity report as CSV, and follow the purge checks. This CSV is not a full Local backup.
-- **Expiry reminders:** The worker records simulated passport and visa reminders at 90, 60, and 30 days. It does not send a real email or text message.
-- **Credential vault:** Saved credentials are encrypted. Reveal sends a one-time code to the signed-in user's verified phone number; production use requires configured Twilio and Upstash credentials.
+- **Data lifecycle:** Review and export inactive active-client records. Purging is done from Archived clients after the retention period.
+- **Expiry reminders:** The main Dashboard shows an expiry review queue and reminder audit. Worker events are simulated at exact 90/60/30-day thresholds and do not send email or text.
+- **Credential vault:** Saved credentials are encrypted. Reveal uses a one-time email code sent to the signed-in user's Supabase Auth email. The verification code expires according to Supabase Auth settings, resend has a 60-second app cooldown, and revealed values are hidden again after 30 seconds.
 
 ### Share Selected Client
 
@@ -64,29 +112,29 @@ The one-time profile contains first and last name, email, company, passport expi
 
 If sharing fails, check that the extension is installed and enabled, the correct client is selected, exactly one approved portal tab is open, and the extension ID is configured for the current deployment.
 
-## 6. Protect Your Work
+## 10. Protect Your Work
 
 - Use a private, locked device. Local records are still accessible to someone using your signed-in browser account.
 - Keep Local and Cloud records distinct. Check the Storage label before entering important information.
-- Browser site-data cleanup can remove Local records. A full Local backup download is not currently available.
+- Browser site-data cleanup can remove Local IndexedDB records; history-only cleanup usually does not. A full Local backup download is not currently available.
 - Sign out when finished on a shared device.
 
-## 7. Recommended Dashboard Layout
+## 11. Dashboard Layout
 
-The intended workspace is organized into three areas:
+The current workspace is organized into three areas:
 
-- **Global header:** Organization name, signed-in user, Local/Cloud selector, and sign-out. A backup action should appear in Local mode only after a trusted paid-plan check and the backup feature are implemented.
+- **Global header:** Local/Cloud Workspace selector, Global Page Search, Data lifecycle, Refresh data, Share selected client, Team (owner only), and sign-out. A full Local backup button is not available.
 - **Client sidebar:** Search and quick filters for active and archived clients. Selecting a name updates the workspace without losing the current mode.
 - **Client workspace:** Profile details, available grant balance by currency, invoices and amounts due, documents, and recent activity.
-- **Action hub:** Clear actions for **Add Grant**, **Add Invoice**, **Archive**, and **Purge**, with confirmation for destructive actions.
+- **Action hub:** **Add grant entry**, **Add invoice**, **Archive client** (or **Restore client**), and **Purge client**. Purge is enabled only for eligible archived records and requires confirmation.
 
 The dashboard uses the split-screen layout in [FinancialWorkspaceLayout.tsx](../src/components/FinancialWorkspaceLayout.tsx). The header contains storage mode and account controls, the sidebar switches between active and archived clients, the center shows the selected profile and financial activity, and the action hub opens grant/invoice forms or runs archive, restore, and eligible purge actions.
 
-## 8. Current Feature Availability
+## 12. Current Feature Availability
 
 - Organization login gate: implemented for both modes, but requires working Supabase settings and deployed schema.
 - Local and Cloud storage selection: implemented; the two stores do not sync or migrate records.
 - Grant allocations, per-currency balances, invoice grant drawdown, and payment recording: implemented in app code; Cloud RPCs require the updated schema to be applied.
-- Archive and 90-day purge eligibility: implemented in app code and schema; validate against staging before use.
+- Archive and 90-day purge eligibility: implemented in the app and schema. Purge is manual, requires an archived record and invoice/attachment checks, and is never triggered by the reminder worker.
 - Paid subscriptions and full Local backup download: not implemented.
-- Live registration, Cloud access, and cross-tenant RLS: not verified against a configured Supabase project.
+- Deployed registration, Cloud access, and database policies must be checked in the target Supabase/Vercel projects; this source guide cannot verify external deployment settings.

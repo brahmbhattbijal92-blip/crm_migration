@@ -1,6 +1,6 @@
 # Local Mode and Cloud Mode: Your Guide
 
-> **Feature status:** Local and Cloud modes now require sign-in and verified organization membership. Paid plans and a full Local backup download are not available yet. This workspace still needs real Supabase settings and the schema applied before live sign-in can work.
+> **Feature status:** Local and Cloud modes require sign-in and organization membership. Paid plans and a full Local backup download are not available yet.
 
 ## 1. Introduction: What Is Local Mode vs. Cloud Mode?
 
@@ -27,7 +27,7 @@
 
 1. **Your team cannot see Local Mode work.** It does not sync to the organization.
 2. **You must register or sign in before using either mode.** The system checks your organization access before opening the dashboard.
-3. **Protect your Local records.** Clearing this app's saved website data or resetting the browser may remove them. Clearing browsing history alone may not. The paid backup described below is not available yet.
+3. **Protect your Local records.** Client data is in browser IndexedDB, not the browser history list. The Local/Cloud preference is in localStorage. Clearing browsing history alone usually does not clear IndexedDB, but clearing site data/cookies, resetting the browser profile, or storage eviction can remove Local records. The paid backup described below is not available yet.
 
 ## 5. Step-by-Step Guide to the System
 
@@ -35,18 +35,18 @@
 
 - Choose **Register organization** to create a new organization account, or **Sign in** if you already belong to one.
 - After your organization access is confirmed, the system takes you to the dashboard.
-- To open Local Mode after sign-in, choose **Local** in the dashboard's **Storage** menu. Your Local records are separated by signed-in user on that browser.
+- To open Local Mode after sign-in, choose **Local Storage Mode** in the dashboard's **Workspace** selector. Your Local database is scoped to the signed-in user, browser profile, and exact site address.
 
 ### Step 2: Choose Your Workspace
 
-- In the dashboard, use **Storage** to choose **Local** or **Cloud**.
+- In the dashboard, use **Workspace** to choose **Local Storage Mode** or **Cloud Sync Mode**.
 - Local is your notebook on this device. Cloud is the shared filing cabinet for your organization.
 - The current app asks you to confirm before switching because the records are not copied between the two places.
 
 ### Step 3: Enter Records and Work
 
 - Add and update records as usual.
-- In Local Mode, records stay in this browser on this device. Your teammates will not see them.
+- In Local Mode, records stay in this browser on this device. Your teammates will not see them. They are not automatically copied to Supabase Cloud.
 - In Cloud Mode, records are available to people in your organization who have access.
 
 ### Step 4: Save a Local Backup (Paid Feature, Planned)
@@ -57,7 +57,14 @@
 
 ### Step 5: Switch from Local to Cloud
 
-- Change **Storage** from **Local** to **Cloud**, then confirm the switch.
+- Change **Workspace** from **Local Storage Mode** to **Cloud Sync Mode**, then confirm the switch.
 - Your Local records stay on your device. They are not erased, uploaded, or copied by the switch.
 - The dashboard then shows your organization's Cloud records. If they look different, that is because Cloud and Local are separate places.
 - Switch back to **Local** to see your Local records again. Ask your administrator for help if Cloud Mode is not available to your account.
+
+## 6. Local Documents and Reminders
+
+- Choose **Choose local folder** before staging a document. The file contents go into the selected folder; the app keeps document details and the folder handle in browser IndexedDB. The browser may ask for folder permission again.
+- Local mode still requires sign-in and organization membership even though its client data is stored in the browser.
+- The scheduled expiry worker reads Cloud Supabase clients only. Local passport or visa dates do not create worker reminders. Reminder events are simulated database records, not emails or texts.
+- For dashboard buttons, expiry-reminder timing, data lifecycle, and purge instructions, see the [Dashboard User Guide](docs/DASHBOARD_USER_GUIDE.md).

@@ -82,15 +82,10 @@ function DataLifecycleContent() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasMoreAccounts, setHasMoreAccounts] = useState(false);
   const [isLoadingMoreAccounts, setIsLoadingMoreAccounts] = useState(false);
-  const [isReviewingPurge, setIsReviewingPurge] = useState(false);
-  const [isPurging, setIsPurging] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [lastRefreshed, setLastRefreshed] = useState('');
   const [referenceTime, setReferenceTime] = useState(0);
-  const [pendingPurgeIds, setPendingPurgeIds] = useState<string[]>([]);
-  const [pendingAttachmentCount, setPendingAttachmentCount] = useState(0);
-  const [showPurgeConfirmation, setShowPurgeConfirmation] = useState(false);
   const queryKey = JSON.stringify([appliedSearchTerm, searchField]);
   const isLoading = loadedDataService !== dataService || loadedQueryKey !== queryKey || isRefreshing;
 
@@ -125,7 +120,7 @@ function DataLifecycleContent() {
   }
 
   async function loadMoreAccounts() {
-    if (!hasMoreAccounts || isLoading || isLoadingMoreAccounts || isPurging || isReviewingPurge) return;
+    if (!hasMoreAccounts || isLoading || isLoadingMoreAccounts) return;
     setIsLoadingMoreAccounts(true);
     setErrorMessage('');
     try {
@@ -206,76 +201,6 @@ function DataLifecycleContent() {
     link.download = `inactive-accounts-${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
     URL.revokeObjectURL(url);
-  }
-
-  async function reviewSelectedPurge() {
-    const clientIds = inactiveAccounts.filter((account) => selectedIds.has(account.id)).map((account) => account.id);
-    if (clientIds.length === 0) return;
-
-    setErrorMessage('');
-    setSuccessMessage('');
-    setIsReviewingPurge(true);
-    try {
-      const review = await dataService.reviewPurge(clientIds);
-      if (review.blockedInvoices.length > 0) {
-        const invoiceDetails = review.blockedInvoices
-          .map((invoice) => `${invoice.invoiceNumber} (${invoice.status}, ${invoice.currency} ${invoice.amount.toFixed(2)})`)
-          .join(', ');
-        setErrorMessage(`COMPLIANCE WARNING — PURGE BLOCKED. Selected accounts have active or unpaid invoices: ${invoiceDetails}. Resolve or void every listed invoice before retrying.`);
-        setShowPurgeConfirmation(false);
-        setPendingPurgeIds([]);
-        return;
-      }
-
-      setPendingPurgeIds(clientIds);
-      setPendingAttachmentCount(review.attachmentCount);
-      setShowPurgeConfirmation(true);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Purge compliance check could not be completed.');
-    } finally {
-      setIsReviewingPurge(false);
-    }
-  }
-
-  async function confirmPurge() {
-    if (pendingPurgeIds.length === 0) return;
-    setIsPurging(true);
-    setErrorMessage('');
-    try {
-      await dataService.purgeClients(pendingPurgeIds);
-      const purgeCount = pendingPurgeIds.length;
-      setAccounts((current) => current.filter((account) => !pendingPurgeIds.includes(account.id)));
-      setSelectedIds((current) => {
-        const next = new Set(current);
-        pendingPurgeIds.forEach((id) => next.delete(id));
-        return next;
-      });
-      setPendingPurgeIds([]);
-      setPendingAttachmentCount(0);
-      setShowPurgeConfirmation(false);
-      setSuccessMessage(`Secure purge completed for ${purgeCount} selected account${purgeCount === 1 ? '' : 's'}.`);
-      const refreshedAt = new Date();
-      setReferenceTime(refreshedAt.getTime());
-      setLastRefreshed(refreshedAt.toISOString());
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Secure purge did not complete.';
-      setErrorMessage(message.includes('COMPLIANCE_PURGE_BLOCKED')
-        ? `COMPLIANCE WARNING — PURGE BLOCKED. ${message.replace('COMPLIANCE_PURGE_BLOCKED:', '').trim()}`
-        : message);
-      if (message.includes('COMPLIANCE_PURGE_BLOCKED')) {
-        setPendingPurgeIds([]);
-        setShowPurgeConfirmation(false);
-      }
-    } finally {
-      setIsPurging(false);
-    }
-  }
-
-  function cancelPurgeConfirmation() {
-    if (isPurging) return;
-    setPendingPurgeIds([]);
-    setPendingAttachmentCount(0);
-    setShowPurgeConfirmation(false);
   }
 
   return (
@@ -382,14 +307,12 @@ function DataLifecycleContent() {
             >
               Export selected ({selectedCount})
             </button>
-            <button
-              type="button"
-              disabled={selectedCount === 0 || isReviewingPurge || isPurging}
-              onClick={() => void reviewSelectedPurge()}
-              className="self-start border border-rose-800 bg-rose-950/40 px-3 py-2 text-sm font-semibold text-rose-200 hover:bg-rose-950 disabled:cursor-not-allowed disabled:opacity-40 sm:self-auto"
+            <Link
+              href="/dashboard/archived"
+              className="self-start border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900 sm:self-auto"
             >
-              {isReviewingPurge ? 'Checking invoices...' : 'Secure Purge Selected Records'}
-            </button>
+              Open archived clients
+            </Link>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[980px] text-left text-sm">
@@ -442,49 +365,10 @@ function DataLifecycleContent() {
             </div>
           )}
           <footer className="border-t border-zinc-800 px-5 py-3 text-xs text-zinc-500">
-            Purge requires a clean invoice review and explicit irreversible-action confirmation.
+            This report is for inactivity review and CSV export. To permanently purge a client, archive it first, wait 90 days, then use Archived clients. Active or unpaid invoices block purge.
           </footer>
         </section>
       </div>
-
-      {showPurgeConfirmation && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" role="presentation">
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="purge-confirmation-title"
-            className="w-full max-w-xl space-y-5 border border-rose-900 bg-zinc-950 p-6 shadow-2xl"
-          >
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase text-rose-300">Irreversible action</p>
-              <h2 id="purge-confirmation-title" className="text-xl font-semibold text-zinc-100">Confirm secure purge</h2>
-              <p className="text-sm leading-6 text-zinc-400">
-                This permanently hard-deletes {pendingPurgeIds.length} selected client account{pendingPurgeIds.length === 1 ? '' : 's'} and dependent records from {preference === 'cloud' ? 'PostgreSQL' : 'local IndexedDB'}, removes their local IndexedDB copies, and deletes all associated attachments from {preference === 'cloud' ? 'Supabase Storage and any selected local folder' : 'the selected local folder'}.
-              </p>
-              <p className="text-sm text-rose-200">{pendingAttachmentCount} attachment record{pendingAttachmentCount === 1 ? '' : 's'} will be removed. This action cannot be undone.</p>
-              <p className="text-xs text-zinc-500">The system will recheck invoices at execution time. Any active or unpaid invoice blocks the purge.</p>
-            </div>
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                disabled={isPurging}
-                onClick={cancelPurgeConfirmation}
-                className="border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-900 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={isPurging}
-                onClick={() => void confirmPurge()}
-                className="bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-600 disabled:opacity-50"
-              >
-                {isPurging ? 'Purging records...' : 'Permanently purge selected'}
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
     </main>
   );
 }

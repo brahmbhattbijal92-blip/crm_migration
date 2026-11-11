@@ -1272,7 +1272,7 @@ function DashboardContent() {
               </div>
 
               <p className="px-5 py-4 text-xs leading-5 text-zinc-500">
-                Expiry notifications do not purge data. Destructive purging is disabled until an organization retention policy and approval workflow are defined.
+                Expiry notifications are review-only. To purge client data, archive the client, wait 90 days, then use Archived clients. Active or unpaid invoices block purge.
               </p>
             </section>
           </div>
