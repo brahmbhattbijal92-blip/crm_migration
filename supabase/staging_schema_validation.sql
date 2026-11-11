@@ -47,6 +47,8 @@ expected_columns(schema_name, table_name, column_name) AS (
     ('public', 'clients', 'passport_expires_at'),
     ('public', 'clients', 'visa_subclass'),
     ('public', 'clients', 'visa_expires_at'),
+    ('public', 'clients', 'agent_reminder_date'),
+    ('public', 'clients', 'agent_reminder_note'),
     ('public', 'clients', 'deleted_at'),
     ('public', 'clients', 'purge_locked_at'),
     ('public', 'clients', 'purge_locked_by'),

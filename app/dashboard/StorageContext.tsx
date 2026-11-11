@@ -45,6 +45,8 @@ export interface ClientRecord {
   passportExpiresAt: string | null;
   visaSubclass: string;
   visaExpiresAt: string | null;
+  agentReminderDate: string | null;
+  agentReminderNote: string;
 }
 
 export interface ClientInput {
@@ -55,6 +57,8 @@ export interface ClientInput {
   passportExpiresAt?: string | null;
   visaSubclass?: string;
   visaExpiresAt?: string | null;
+  agentReminderDate?: string | null;
+  agentReminderNote?: string;
 }
 
 export interface DocumentRecord {
@@ -155,6 +159,15 @@ export interface GovernanceNotification {
   deliveredAt: string | null;
 }
 
+export interface AgentReminder {
+  id: string;
+  clientId: string;
+  clientName: string;
+  assignedAgentId: string | null;
+  reminderDate: string;
+  note: string;
+}
+
 export interface PageResult<T> {
   items: T[];
   hasMore: boolean;
@@ -192,6 +205,7 @@ export interface IDataService {
   listGrants(): Promise<GrantRecord[]>;
   listGrantBalances(clientId?: string): Promise<GrantBalance[]>;
   createGrant(input: GrantInput): Promise<GrantRecord>;
+  listAgentReminders(): Promise<AgentReminder[]>;
   listGovernanceNotifications(): Promise<GovernanceNotification[]>;
   reviewPurge(clientIds: string[]): Promise<PurgeReview>;
   purgeClients(clientIds: string[]): Promise<void>;
@@ -438,6 +452,8 @@ function normalizeLocalClient(value: StoredClient | Record<string, unknown>): Cl
     passportExpiresAt: row.passportExpiresAt ? String(row.passportExpiresAt) : null,
     visaSubclass: String(row.visaSubclass ?? ''),
     visaExpiresAt: row.visaExpiresAt ? String(row.visaExpiresAt) : null,
+    agentReminderDate: row.agentReminderDate ? String(row.agentReminderDate) : null,
+    agentReminderNote: String(row.agentReminderNote ?? ''),
   };
 }
 
@@ -458,6 +474,8 @@ function mapCloudClient(row: Record<string, unknown>): ClientRecord {
     passportExpiresAt: row.passport_expires_at ? String(row.passport_expires_at) : null,
     visaSubclass: String(row.visa_subclass ?? ''),
     visaExpiresAt: row.visa_expires_at ? String(row.visa_expires_at) : null,
+    agentReminderDate: row.agent_reminder_date ? String(row.agent_reminder_date) : null,
+    agentReminderNote: String(row.agent_reminder_note ?? ''),
   };
 }
 
@@ -593,6 +611,8 @@ class IndexedDbDataService implements IDataService {
       passportExpiresAt: input.passportExpiresAt || null,
       visaSubclass: input.visaSubclass?.trim() ?? '',
       visaExpiresAt: input.visaExpiresAt || null,
+      agentReminderDate: input.agentReminderDate || null,
+      agentReminderNote: input.agentReminderNote?.trim() ?? '',
     };
     await localRequest(CLIENTS_STORE, 'readwrite', (store) => store.put(client));
     return normalizeLocalClient(client);
@@ -612,6 +632,8 @@ class IndexedDbDataService implements IDataService {
       passportExpiresAt: input.passportExpiresAt || null,
       visaSubclass: input.visaSubclass?.trim() ?? '',
       visaExpiresAt: input.visaExpiresAt || null,
+      agentReminderDate: input.agentReminderDate || null,
+      agentReminderNote: input.agentReminderNote?.trim() ?? '',
     };
     await localRequest(CLIENTS_STORE, 'readwrite', (store) => store.put(client));
     return normalizeLocalClient(client);
@@ -917,6 +939,22 @@ class IndexedDbDataService implements IDataService {
     return grant;
   }
 
+  async listAgentReminders(): Promise<AgentReminder[]> {
+    const clients = await localRequest<Array<StoredClient | Record<string, unknown>>>(CLIENTS_STORE, 'readonly', (store) => store.getAll());
+    return clients
+      .map(normalizeLocalClient)
+      .filter((client) => client.status !== 'archived' && client.agentReminderDate)
+      .map((client) => ({
+        id: client.id,
+        clientId: client.id,
+        clientName: `${client.firstName} ${client.lastName}`,
+        assignedAgentId: client.assignedAgentId,
+        reminderDate: client.agentReminderDate as string,
+        note: client.agentReminderNote,
+      }))
+      .sort((a, b) => a.reminderDate.localeCompare(b.reminderDate) || a.clientName.localeCompare(b.clientName));
+  }
+
   async listGovernanceNotifications(): Promise<GovernanceNotification[]> {
     const visibleSince = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const rows = await localRequest<GovernanceNotification[]>(GOVERNANCE_NOTIFICATIONS_STORE, 'readonly', (store) => store.getAll());
@@ -977,7 +1015,7 @@ class SupabaseDataService implements IDataService {
     const { offset: pageOffset, limit: pageLimit } = normalizePageBounds(offset, limit);
     let query = getSupabaseClient()
       .from('clients')
-      .select('id, first_name, last_name, email, company, status, archived_at, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at, deleted_at, assigned_agent_id');
+      .select('id, first_name, last_name, email, company, status, archived_at, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at, agent_reminder_date, agent_reminder_note, deleted_at, assigned_agent_id');
     const term = searchTerm.trim();
     let searchPredicate = '';
     if (term) {
@@ -1013,7 +1051,7 @@ class SupabaseDataService implements IDataService {
   async listClients(): Promise<ClientRecord[]> {
     const { data, error } = await getSupabaseClient()
       .from('clients')
-      .select('id, first_name, last_name, email, company, status, archived_at, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at, assigned_agent_id')
+      .select('id, first_name, last_name, email, company, status, archived_at, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at, agent_reminder_date, agent_reminder_note, assigned_agent_id')
       .is('deleted_at', null)
       .order('updated_at', { ascending: false });
     if (error) throwSupabaseError(error, 'client list');
@@ -1023,7 +1061,7 @@ class SupabaseDataService implements IDataService {
   async listArchivedClients(): Promise<ClientRecord[]> {
     const { data, error } = await getSupabaseClient()
       .from('clients')
-      .select('id, first_name, last_name, email, company, status, archived_at, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at, assigned_agent_id')
+      .select('id, first_name, last_name, email, company, status, archived_at, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at, agent_reminder_date, agent_reminder_note, assigned_agent_id')
       .or('status.eq.archived,deleted_at.not.is.null')
       .order('updated_at', { ascending: false });
     if (error) throwSupabaseError(error, 'archived client list');
@@ -1039,6 +1077,8 @@ class SupabaseDataService implements IDataService {
       requested_passport_expires_at: input.passportExpiresAt || null,
       requested_visa_subclass: input.visaSubclass?.trim() || null,
       requested_visa_expires_at: input.visaExpiresAt || null,
+      requested_agent_reminder_date: input.agentReminderDate || null,
+      requested_agent_reminder_note: input.agentReminderNote?.trim() || null,
     });
     if (error) throwSupabaseError(error, 'client save');
     const row = Array.isArray(data) ? data[0] : data;
@@ -1057,10 +1097,12 @@ class SupabaseDataService implements IDataService {
         passport_expires_at: input.passportExpiresAt || null,
         visa_subclass: input.visaSubclass?.trim() || null,
         visa_expires_at: input.visaExpiresAt || null,
+        agent_reminder_date: input.agentReminderDate || null,
+        agent_reminder_note: input.agentReminderNote?.trim() || null,
       })
       .eq('id', id)
       .is('deleted_at', null)
-      .select('id, first_name, last_name, email, company, status, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at, assigned_agent_id')
+      .select('id, first_name, last_name, email, company, status, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at, agent_reminder_date, agent_reminder_note, assigned_agent_id')
       .single();
     if (error) throwSupabaseError(error, 'client update');
     return mapCloudClient(data as Record<string, unknown>);
@@ -1287,6 +1329,26 @@ class SupabaseDataService implements IDataService {
       clientId: String(row.client_id),
       currency: String(row.currency),
       availableBalance: Number(row.available_balance),
+    }));
+  }
+
+  async listAgentReminders(): Promise<AgentReminder[]> {
+    const { data, error } = await getSupabaseClient()
+      .from('clients')
+      .select('id, first_name, last_name, assigned_agent_id, agent_reminder_date, agent_reminder_note')
+      .is('deleted_at', null)
+      .neq('status', 'archived')
+      .not('agent_reminder_date', 'is', null)
+      .order('agent_reminder_date', { ascending: true })
+      .limit(1000);
+    if (error) throwSupabaseError(error, 'agent reminder list');
+    return (data ?? []).map((row) => ({
+      id: String(row.id),
+      clientId: String(row.id),
+      clientName: `${String(row.first_name ?? '')} ${String(row.last_name ?? '')}`.trim(),
+      assignedAgentId: row.assigned_agent_id ? String(row.assigned_agent_id) : null,
+      reminderDate: String(row.agent_reminder_date),
+      note: String(row.agent_reminder_note ?? ''),
     }));
   }
 

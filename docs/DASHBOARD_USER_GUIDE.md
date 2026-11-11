@@ -52,8 +52,10 @@ Use the **Workspace** selector in the dashboard header.
 
 ## 5. Expiry Review and Reminders
 
+- Set **Agent reminder date (all day)** and an optional **Reminder note** in a client profile, then save. The assigned agent sees that reminder on the Dashboard for the full local calendar day; it becomes overdue and stays visible until the date is cleared or changed. These reminders do not send email or depend on a time of day.
+- In Cloud mode, an agent can see reminders only for clients they can access. In Local mode, reminders are stored only in that browser's local data. Apply `supabase/migrations/20261111070000_client_agent_all_day_reminders.sql` before using this field in Cloud mode.
 - Enter **Passport expiry** or **Visa expiry** on the Client profile and save it. A date appearing in the **Expiry review queue** means that date exists on a currently loaded client; it is not itself a reminder event.
-- The queue and **Agent reminder audit** are under **Purge and data governance** on the main Dashboard. They are not on the **Inactive accounts** Data Lifecycle page.
+- The expiry review queue, all-day agent reminders, and **Expiry notice audit** are under **Purge and data governance** on the main Dashboard. They are not on the **Inactive accounts** Data Lifecycle page.
 - The Vercel Hobby cron worker runs daily at **08:00 UTC**. It creates a reminder when a non-archived Cloud client expires exactly 90, 60, or 30 UTC calendar days after that run. It emails the authorized recipients and stores an audit row; it does not trigger for every date inside those windows.
 - The worker does not backfill a notice window that has already passed. If an expiry date is entered after its 30-day notice date, no late 30-day event is generated.
 - The audit panel displays events created within the last 24 hours and their delivery status: **queued**, **sending**, **sent**, or **failed**. Older events remain stored in Supabase but are hidden from this panel. A **sent** status means the SMTP server accepted the message; it does not guarantee inbox delivery. Each reminder milestone gets one email attempt; failed attempts are not automatically resent.

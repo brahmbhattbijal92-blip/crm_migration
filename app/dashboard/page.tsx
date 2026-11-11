@@ -18,6 +18,7 @@ import { getSupabasePublicConfig } from '../../src/lib/supabase/config';
 import {
   DashboardStorageProvider,
   useDashboardStorage,
+  type AgentReminder,
   type ClientInput,
   type ClientFinancialSummary as ClientFinancialSummaryData,
   type ClientRecord,
@@ -45,6 +46,8 @@ const EMPTY_FORM: ClientInput = {
   passportExpiresAt: '',
   visaSubclass: '',
   visaExpiresAt: '',
+  agentReminderDate: '',
+  agentReminderNote: '',
 };
 
 interface InvoiceFormState {
@@ -95,8 +98,27 @@ interface WindowWithExtension extends Window {
 
 function formatDate(value: string | null | undefined): string {
   if (!value) return '—';
-  const date = new Date(value);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value);
   return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString();
+}
+
+function localDateString(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function toAgentReminder(client: ClientRecord): AgentReminder | null {
+  if (!client.agentReminderDate || client.status === 'archived') return null;
+  return {
+    id: client.id,
+    clientId: client.id,
+    clientName: `${client.firstName} ${client.lastName}`,
+    assignedAgentId: client.assignedAgentId,
+    reminderDate: client.agentReminderDate,
+    note: client.agentReminderNote,
+  };
 }
 
 function formatMoney(value: number, currency: string): string {
@@ -125,6 +147,8 @@ function DashboardContent() {
   const [grants, setGrants] = useState<GrantRecord[]>([]);
   const [grantBalances, setGrantBalances] = useState<GrantBalance[]>([]);
   const [notifications, setNotifications] = useState<GovernanceNotification[]>([]);
+  const [agentReminders, setAgentReminders] = useState<AgentReminder[]>([]);
+  const [localToday, setLocalToday] = useState('');
   const [financialSummary, setFinancialSummary] = useState<ClientFinancialSummaryData | null>(null);
   const [selectedClientId, setSelectedClientId] = useState('');
   const [form, setForm] = useState<ClientInput>(EMPTY_FORM);
@@ -168,6 +192,18 @@ function DashboardContent() {
   }, []);
 
   useEffect(() => {
+    let timer: number;
+    const updateLocalDay = () => {
+      const now = new Date();
+      setLocalToday(localDateString(now));
+      const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      timer = window.setTimeout(updateLocalDay, nextMidnight.getTime() - now.getTime());
+    };
+    updateLocalDay();
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => setAppliedClientSearchTerm(clientSearchTerm.trim()), 250);
     return () => window.clearTimeout(timer);
   }, [clientSearchTerm]);
@@ -204,10 +240,11 @@ function DashboardContent() {
       setIsDashboardLoading(true);
       setErrorMessage('');
       try {
-        const [clientPage, archivedPage, notificationRows] = await Promise.all([
+        const [clientPage, archivedPage, notificationRows, reminderRows] = await Promise.all([
           dataService.listClientPage(false, 0, DASHBOARD_PAGE_SIZE, appliedClientSearchTerm, clientSearchField),
           dataService.listClientPage(true, 0, DASHBOARD_PAGE_SIZE, appliedClientSearchTerm, clientSearchField),
           dataService.listGovernanceNotifications(),
+          dataService.listAgentReminders(),
         ]);
         if (!active) return;
         setClients(clientPage.items);
@@ -215,6 +252,7 @@ function DashboardContent() {
         setClientHasMore(clientPage.hasMore);
         setArchivedClientHasMore(archivedPage.hasMore);
         setNotifications(notificationRows);
+        setAgentReminders(reminderRows);
         const loadedRows = [...clientPage.items, ...archivedPage.items];
         setSelectedClientId((current) => current && loadedRows.some((client) => client.id === current)
           ? current
@@ -285,16 +323,18 @@ function DashboardContent() {
     setIsDashboardLoading(true);
     setErrorMessage('');
     try {
-      const [clientPage, archivedPage, notificationRows] = await Promise.all([
+      const [clientPage, archivedPage, notificationRows, reminderRows] = await Promise.all([
         dataService.listClientPage(false, 0, DASHBOARD_PAGE_SIZE, appliedClientSearchTerm, clientSearchField),
         dataService.listClientPage(true, 0, DASHBOARD_PAGE_SIZE, appliedClientSearchTerm, clientSearchField),
         dataService.listGovernanceNotifications(),
+        dataService.listAgentReminders(),
       ]);
       setClients(clientPage.items);
       setArchivedClients(archivedPage.items);
       setClientHasMore(clientPage.hasMore);
       setArchivedClientHasMore(archivedPage.hasMore);
       setNotifications(notificationRows);
+      setAgentReminders(reminderRows);
       const loadedRows = [...clientPage.items, ...archivedPage.items];
       setSelectedClientId((current) => current && loadedRows.some((client) => client.id === current)
         ? current
@@ -402,6 +442,8 @@ function DashboardContent() {
       passportExpiresAt: client.passportExpiresAt ?? '',
       visaSubclass: client.visaSubclass,
       visaExpiresAt: client.visaExpiresAt ?? '',
+      agentReminderDate: client.agentReminderDate ?? '',
+      agentReminderNote: client.agentReminderNote,
     });
     setSuccessMessage('');
   }
@@ -422,6 +464,12 @@ function DashboardContent() {
         ? await dataService.updateClient(editingClientId, form)
         : await dataService.saveClient(form);
       setClients((current) => [saved, ...current.filter((client) => client.id !== saved.id)].slice(0, DASHBOARD_PAGE_SIZE));
+      setAgentReminders((current) => {
+        const updated = current.filter((reminder) => reminder.clientId !== saved.id);
+        const reminder = toAgentReminder(saved);
+        if (reminder) updated.push(reminder);
+        return updated.sort((a, b) => a.reminderDate.localeCompare(b.reminderDate) || a.clientName.localeCompare(b.clientName));
+      });
       if (!editingClientId && clients.length >= DASHBOARD_PAGE_SIZE) setClientHasMore(true);
       setSelectedClientId(saved.id);
       setSuccessMessage(editingClientId ? 'Client profile updated.' : 'Client profile created.');
@@ -665,6 +713,7 @@ function DashboardContent() {
     ...(client.passportExpiresAt ? [{ id: `${client.id}:passport`, clientName: `${client.firstName} ${client.lastName}`, documentType: 'Passport', expiresOn: client.passportExpiresAt }] : []),
     ...(client.visaExpiresAt ? [{ id: `${client.id}:visa`, clientName: `${client.firstName} ${client.lastName}`, documentType: `Visa${client.visaSubclass ? ` subclass ${client.visaSubclass}` : ''}`, expiresOn: client.visaExpiresAt }] : []),
   ]);
+  const dueAgentReminders = agentReminders.filter((reminder) => localToday && reminder.reminderDate <= localToday);
 
   return (
     <FinancialWorkspaceLayout
@@ -867,6 +916,24 @@ function DashboardContent() {
                     type="date"
                     value={form.visaExpiresAt ?? ''}
                     onChange={(event) => setForm((current) => ({ ...current, visaExpiresAt: event.target.value || null }))}
+                    className="w-full border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs text-zinc-400">Agent reminder date (all day)</span>
+                  <input
+                    type="date"
+                    value={form.agentReminderDate ?? ''}
+                    onChange={(event) => setForm((current) => ({ ...current, agentReminderDate: event.target.value || null }))}
+                    className="w-full border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+                  />
+                </label>
+                <label className="space-y-1.5 sm:col-span-2">
+                  <span className="text-xs text-zinc-400">Reminder note</span>
+                  <input
+                    maxLength={500}
+                    value={form.agentReminderNote ?? ''}
+                    onChange={(event) => setForm((current) => ({ ...current, agentReminderNote: event.target.value }))}
                     className="w-full border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
                   />
                 </label>
@@ -1225,9 +1292,36 @@ function DashboardContent() {
                   <p className="mt-1 text-xl font-semibold">{expirationReviews.length}</p>
                 </div>
                 <div className="p-4">
-                  <p className="text-xs text-zinc-500">Reminder events (24h)</p>
+                  <p className="text-xs text-zinc-500">Expiry notices (24h)</p>
                   <p className="mt-1 text-xl font-semibold">{notifications.length}</p>
                 </div>
+              </div>
+
+              <div className="border-b border-zinc-800 p-5">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h3 className="text-xs font-semibold uppercase text-zinc-400">Agent reminders (all day)</h3>
+                  <span className="text-xs text-zinc-500">{dueAgentReminders.length} due</span>
+                </div>
+                {agentReminders.length === 0 ? (
+                  <p className="text-sm text-zinc-500">No agent reminders scheduled.</p>
+                ) : (
+                  <div className="max-h-64 space-y-3 overflow-auto">
+                    {agentReminders.map((reminder) => {
+                      const status = reminder.reminderDate < localToday ? 'Overdue' : reminder.reminderDate === localToday ? 'Due today' : 'Upcoming';
+                      return (
+                        <article key={reminder.id} className="border-b border-zinc-800/70 pb-3 last:border-0">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-sm text-zinc-200">{reminder.clientName}</p>
+                            <span className={`shrink-0 text-[10px] uppercase ${status === 'Overdue' ? 'text-rose-300' : status === 'Due today' ? 'text-emerald-300' : 'text-zinc-400'}`}>
+                              {status}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-xs text-zinc-500">{formatDate(reminder.reminderDate)}{reminder.note ? ` · ${reminder.note}` : ''}</p>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="border-b border-zinc-800 p-5">
@@ -1250,7 +1344,7 @@ function DashboardContent() {
               </div>
 
               <div className="border-b border-zinc-800 p-5">
-                <h3 className="mb-3 text-xs font-semibold uppercase text-zinc-400">Agent reminder audit</h3>
+                <h3 className="mb-3 text-xs font-semibold uppercase text-zinc-400">Expiry notice audit</h3>
                 {notifications.length === 0 ? (
                   <p className="text-sm text-zinc-500">No reminder events in the last 24 hours.</p>
                 ) : (
