@@ -713,7 +713,8 @@ function DashboardContent() {
     ...(client.passportExpiresAt ? [{ id: `${client.id}:passport`, clientName: `${client.firstName} ${client.lastName}`, documentType: 'Passport', expiresOn: client.passportExpiresAt }] : []),
     ...(client.visaExpiresAt ? [{ id: `${client.id}:visa`, clientName: `${client.firstName} ${client.lastName}`, documentType: `Visa${client.visaSubclass ? ` subclass ${client.visaSubclass}` : ''}`, expiresOn: client.visaExpiresAt }] : []),
   ]);
-  const dueAgentReminders = agentReminders.filter((reminder) => localToday && reminder.reminderDate <= localToday);
+  const visibleAgentReminders = agentReminders.filter((reminder) => localToday && reminder.reminderDate >= localToday);
+  const dueAgentReminders = visibleAgentReminders.filter((reminder) => reminder.reminderDate === localToday);
 
   return (
     <FinancialWorkspaceLayout
@@ -1300,19 +1301,19 @@ function DashboardContent() {
               <div className="border-b border-zinc-800 p-5">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <h3 className="text-xs font-semibold uppercase text-zinc-400">Agent reminders (all day)</h3>
-                  <span className="text-xs text-zinc-500">{dueAgentReminders.length} due</span>
+                  <span className="text-xs text-zinc-500">{dueAgentReminders.length} today</span>
                 </div>
-                {agentReminders.length === 0 ? (
-                  <p className="text-sm text-zinc-500">No agent reminders scheduled.</p>
+                {visibleAgentReminders.length === 0 ? (
+                  <p className="text-sm text-zinc-500">No agent reminders scheduled for today or later.</p>
                 ) : (
                   <div className="max-h-64 space-y-3 overflow-auto">
-                    {agentReminders.map((reminder) => {
-                      const status = reminder.reminderDate < localToday ? 'Overdue' : reminder.reminderDate === localToday ? 'Due today' : 'Upcoming';
+                    {visibleAgentReminders.map((reminder) => {
+                      const status = reminder.reminderDate === localToday ? 'Due today' : 'Upcoming';
                       return (
                         <article key={reminder.id} className="border-b border-zinc-800/70 pb-3 last:border-0">
                           <div className="flex items-center justify-between gap-3">
                             <p className="text-sm text-zinc-200">{reminder.clientName}</p>
-                            <span className={`shrink-0 text-[10px] uppercase ${status === 'Overdue' ? 'text-rose-300' : status === 'Due today' ? 'text-emerald-300' : 'text-zinc-400'}`}>
+                            <span className={`shrink-0 text-[10px] uppercase ${status === 'Due today' ? 'text-emerald-300' : 'text-zinc-400'}`}>
                               {status}
                             </span>
                           </div>
