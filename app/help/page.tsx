@@ -26,6 +26,7 @@ export default function HelpPage() {
           <Link href="/" className="text-sm font-semibold text-emerald-300 hover:text-emerald-200">CRM Migration</Link>
           <nav aria-label="Main navigation" className="flex gap-4 text-sm text-zinc-300">
             <Link href="/" className="hover:text-white">Home</Link>
+            <Link href="/contact" className="hover:text-white">Contact</Link>
             <Link href="/login" className="hover:text-white">Sign in</Link>
           </nav>
         </div>
@@ -132,7 +133,7 @@ export default function HelpPage() {
           </section>
 
           <p className="border-t border-zinc-800 pt-5 text-sm text-zinc-400">
-            Need to return to work? <Link href="/dashboard" className="text-emerald-300 underline underline-offset-4 hover:text-emerald-200">Open the Dashboard</Link> or <Link href="/login" className="text-emerald-300 underline underline-offset-4 hover:text-emerald-200">sign in</Link>.
+            Need help with something else? <Link href="/contact" className="text-emerald-300 underline underline-offset-4 hover:text-emerald-200">Contact us</Link>. Need to return to work? <Link href="/dashboard" className="text-emerald-300 underline underline-offset-4 hover:text-emerald-200">Open the Dashboard</Link> or <Link href="/login" className="text-emerald-300 underline underline-offset-4 hover:text-emerald-200">sign in</Link>.
           </p>
         </article>
       </div>

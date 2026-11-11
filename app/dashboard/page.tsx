@@ -730,6 +730,7 @@ function DashboardContent() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link href="/help" className="border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900">Help</Link>
+            <Link href="/contact" className="border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900">Contact</Link>
             <Link href="/dashboard/data-lifecycle" className="border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900">Data lifecycle</Link>
             <AuthStatus />
             {selectedClient && (

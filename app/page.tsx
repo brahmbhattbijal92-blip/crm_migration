@@ -21,6 +21,7 @@ export default function Home() {
           <Link href="/login" className="bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 hover:bg-emerald-400">Sign in</Link>
           <Link href="/register" className="border border-zinc-700 px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-900">Register organization</Link>
           <Link href="/help" className="border border-zinc-700 px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-900">Help and how to use the system</Link>
+          <Link href="/contact" className="border border-zinc-700 px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-900">Contact</Link>
           <Link
             href="/login?next=%2Fdashboard%3Fmode%3Dlocal"
             onClick={() => void updateStoragePreference('local')}
