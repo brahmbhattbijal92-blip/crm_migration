@@ -85,6 +85,11 @@ export default function RegisterPage() {
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-5 py-12">
+        <nav aria-label="Support navigation" className="mb-6 flex flex-wrap gap-4 text-sm text-zinc-400">
+          <Link href="/" className="hover:text-white">Home</Link>
+          <Link href="/help" className="hover:text-white">Help</Link>
+          <Link href="/contact" className="hover:text-white">Contact</Link>
+        </nav>
         <p className="text-xs font-semibold uppercase text-emerald-400">CRM Migration</p>
         <h1 className="mt-2 text-2xl font-semibold">Register your organization</h1>
         <p className="mt-2 text-sm text-zinc-400">Create the owner account first. Invite agents after company setup.</p>

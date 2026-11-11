@@ -1,6 +1,8 @@
 # Migration Form Assistant
 
-## Install for local development
+End users should install the published Chrome Web Store listing. Store publication is not complete yet; the listing URL and extension ID will be added here after the owner submits and Google approves it.
+
+## Install for local development only
 
 1. Open `chrome://extensions` and enable Developer mode.
 2. Choose **Load unpacked** and select this `extension` directory.
@@ -8,6 +10,8 @@
 4. Add `NEXT_PUBLIC_MIGRATION_EXTENSION_ID=<extension-id>` to the app's local `.env`, then restart Next.js.
 5. For local development, use any `http://localhost` port. The extension also accepts external messages from the production app at `https://crm-migration-three.vercel.app`.
 6. Keep exactly one ImmiAccount tab open at `https://online.immi.gov.au`, select a client on `/dashboard`, then choose **Share selected client**. Click the extension's floating **Fill form from client** button.
+
+After publishing, set `NEXT_PUBLIC_MIGRATION_EXTENSION_ID` in the Vercel Production environment to the extension ID assigned by the Chrome Web Store, then redeploy the app. Do not use the development/unpacked extension ID for the Store listing.
 
 ## Security behavior
 
