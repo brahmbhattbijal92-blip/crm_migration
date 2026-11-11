@@ -150,7 +150,7 @@ export interface GovernanceNotification {
   noticeDays: 90 | 60 | 30;
   title: string;
   message: string;
-  deliveryStatus: 'queued' | 'simulated' | 'sent' | 'failed';
+  deliveryStatus: 'queued' | 'sending' | 'simulated' | 'sent' | 'failed';
   createdAt: string;
   deliveredAt: string | null;
 }
@@ -918,8 +918,11 @@ class IndexedDbDataService implements IDataService {
   }
 
   async listGovernanceNotifications(): Promise<GovernanceNotification[]> {
+    const visibleSince = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const rows = await localRequest<GovernanceNotification[]>(GOVERNANCE_NOTIFICATIONS_STORE, 'readonly', (store) => store.getAll());
-    return rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return rows
+      .filter((row) => row.createdAt >= visibleSince)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   async reviewPurge(clientIds: string[]): Promise<PurgeReview> {
@@ -1288,9 +1291,11 @@ class SupabaseDataService implements IDataService {
   }
 
   async listGovernanceNotifications(): Promise<GovernanceNotification[]> {
+    const visibleSince = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { data, error } = await getSupabaseClient()
       .from('governance_notifications')
       .select('id, client_id, document_type, expires_on, notice_days, title, message, delivery_status, created_at, delivered_at')
+      .gte('created_at', visibleSince)
       .order('created_at', { ascending: false })
       .limit(100);
     if (error) throwSupabaseError(error, 'governance notification list');

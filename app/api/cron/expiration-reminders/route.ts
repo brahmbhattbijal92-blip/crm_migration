@@ -198,28 +198,36 @@ async function dispatchReminderNotifications(
     inserted = data?.length ?? 0;
   }
 
-  const retryCutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const staleSendingBefore = new Date(now.getTime() - 15 * 60 * 1000).toISOString();
+  const { error: staleSendingError } = await supabase
+    .from('governance_notifications')
+    .update({ delivery_status: 'failed' })
+    .eq('delivery_status', 'sending')
+    .lt('created_at', staleSendingBefore);
+  if (staleSendingError) throw new Error(`Stale reminder send cleanup failed: ${staleSendingError.message}`);
+
+  const visibleSince = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
   const { data: pendingRows, error: pendingError } = await supabase
     .from('governance_notifications')
     .select('id, organization_id, client_id, recipient_user_id, document_type, expires_on, notice_days, title, message')
-    .in('delivery_status', ['queued', 'failed'])
-    .gte('created_at', retryCutoff)
+    .eq('delivery_status', 'queued')
+    .gte('created_at', visibleSince)
     .order('created_at', { ascending: true });
 
   if (pendingError) throw new Error(`Pending reminder lookup failed: ${pendingError.message}`);
-  const retryableRows = (pendingRows ?? []) as ReminderNotificationRow[];
-  if (retryableRows.length === 0) return { inserted, emailsSent: 0, emailsFailed: 0, skippedWithoutRecipients };
+  const pendingNotifications = (pendingRows ?? []) as ReminderNotificationRow[];
+  if (pendingNotifications.length === 0) return { inserted, emailsSent: 0, emailsFailed: 0, skippedWithoutRecipients };
 
-  const clientIds = [...new Set(retryableRows.map((row) => row.client_id))];
-  const { data: retryClients, error: clientsError } = await supabase
+  const clientIds = [...new Set(pendingNotifications.map((row) => row.client_id))];
+  const { data: pendingClients, error: clientsError } = await supabase
     .from('clients')
     .select('id, organization_id, first_name, last_name, visa_subclass, passport_expires_at, visa_expires_at, assigned_agent_id, created_by, status, deleted_at')
     .in('id', clientIds);
   if (clientsError) throw new Error(`Pending reminder client lookup failed: ${clientsError.message}`);
-  const clientById = new Map((retryClients ?? []).map((client) => [String(client.id), client as ExpiringClient & { status: string; deleted_at: string | null }]));
+  const clientById = new Map((pendingClients ?? []).map((client) => [String(client.id), client as ExpiringClient & { status: string; deleted_at: string | null }]));
 
   const recipientsByOrganization = new Map<string, OrganizationMember[]>();
-  for (const row of retryableRows) {
+  for (const row of pendingNotifications) {
     if (!recipientsByOrganization.has(row.organization_id)) {
       recipientsByOrganization.set(row.organization_id, await getOrganizationMembers(supabase, row.organization_id));
     }
@@ -234,12 +242,22 @@ async function dispatchReminderNotifications(
     await supabase
       .from('governance_notifications')
       .update({ delivery_status: 'failed' })
-      .in('id', retryableRows.map((row) => row.id));
-    return { inserted, emailsSent, emailsFailed: retryableRows.length, skippedWithoutRecipients };
+      .in('id', pendingNotifications.map((row) => row.id));
+    return { inserted, emailsSent, emailsFailed: pendingNotifications.length, skippedWithoutRecipients };
   }
 
   try {
-    for (const notification of retryableRows) {
+    for (const notification of pendingNotifications) {
+      const { data: claimedNotification, error: claimError } = await supabase
+        .from('governance_notifications')
+        .update({ delivery_status: 'sending' })
+        .eq('id', notification.id)
+        .eq('delivery_status', 'queued')
+        .select('id')
+        .maybeSingle();
+      if (claimError) throw new Error(`Reminder send claim failed: ${claimError.message}`);
+      if (!claimedNotification) continue;
+
       const client = clientById.get(notification.client_id);
       const members = recipientsByOrganization.get(notification.organization_id) ?? [];
       const recipient = members.find((member) => member.userId === notification.recipient_user_id);

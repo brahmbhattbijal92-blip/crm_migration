@@ -526,7 +526,7 @@ CREATE TABLE IF NOT EXISTS public.governance_notifications (
   title text NOT NULL,
   message text NOT NULL,
   delivery_status text NOT NULL DEFAULT 'simulated'
-    CHECK (delivery_status IN ('queued', 'simulated', 'sent', 'failed')),
+    CHECK (delivery_status IN ('queued', 'sending', 'simulated', 'sent', 'failed')),
   created_at timestamptz NOT NULL DEFAULT now(),
   delivered_at timestamptz,
   read_at timestamptz,

@@ -1217,7 +1217,7 @@ function DashboardContent() {
             <section id="data-governance" className="border border-zinc-800 bg-zinc-900/40">
               <div className="border-b border-zinc-800 px-5 py-4">
                 <h2 className="text-base font-semibold">Purge and data governance</h2>
-                <p className="mt-1 text-xs text-zinc-500">Expiry reminders run daily at 08:00 UTC for 90, 60, and 30 days.</p>
+                <p className="mt-1 text-xs text-zinc-500">Expiry reminders check hourly for 90-, 60-, and 30-day notices.</p>
               </div>
               <div className="grid grid-cols-2 divide-x divide-zinc-800 border-b border-zinc-800">
                 <div className="p-4">
@@ -1225,7 +1225,7 @@ function DashboardContent() {
                   <p className="mt-1 text-xl font-semibold">{expirationReviews.length}</p>
                 </div>
                 <div className="p-4">
-                  <p className="text-xs text-zinc-500">Reminder events</p>
+                  <p className="text-xs text-zinc-500">Reminder events (24h)</p>
                   <p className="mt-1 text-xl font-semibold">{notifications.length}</p>
                 </div>
               </div>
@@ -1252,7 +1252,7 @@ function DashboardContent() {
               <div className="border-b border-zinc-800 p-5">
                 <h3 className="mb-3 text-xs font-semibold uppercase text-zinc-400">Agent reminder audit</h3>
                 {notifications.length === 0 ? (
-                  <p className="text-sm text-zinc-500">No worker notifications have been recorded.</p>
+                  <p className="text-sm text-zinc-500">No reminder events in the last 24 hours.</p>
                 ) : (
                   <div className="max-h-64 space-y-3 overflow-auto">
                     {notifications.slice(0, 20).map((notification) => (
