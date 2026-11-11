@@ -1074,6 +1074,8 @@ GRANT UPDATE (
   visa_subclass,
   visa_expires_at
 ) ON public.clients TO authenticated;
+GRANT SELECT (agent_reminder_date, agent_reminder_note) ON public.clients TO authenticated;
+GRANT UPDATE (agent_reminder_date, agent_reminder_note) ON public.clients TO authenticated;
 GRANT SELECT, INSERT, UPDATE ON public.documents TO authenticated;
 REVOKE DELETE ON public.documents FROM authenticated;
 GRANT SELECT, INSERT, UPDATE ON public.credentials_vault TO authenticated;
