@@ -84,6 +84,10 @@ export default function GlobalPageSearch() {
   return (
     <div className="relative w-full min-w-0">
       <label className="sr-only" htmlFor="global-page-search">Search pages and features</label>
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute left-3 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 rounded-full border-2 border-zinc-400 after:absolute after:-bottom-1 after:-right-1 after:h-1.5 after:w-0.5 after:rotate-[-45deg] after:bg-zinc-400 after:content-['']"
+      />
       <input
         id="global-page-search"
         type="search"
@@ -101,14 +105,14 @@ export default function GlobalPageSearch() {
         onBlur={() => window.setTimeout(() => setIsOpen(false), 120)}
         onKeyDown={handleKeyDown}
         placeholder="Search pages and features"
-        className="w-full border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-emerald-500"
+        className="h-11 w-full rounded-md border border-zinc-600 bg-zinc-900 px-3 pl-10 text-sm text-zinc-100 shadow-sm outline-none placeholder:text-zinc-400 transition-colors hover:border-zinc-500 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20"
       />
       {isOpen && (
         <div
           id="global-page-search-results"
           role="listbox"
           aria-label="Pages and features"
-          className="absolute left-0 top-full z-50 mt-1 max-h-80 w-full overflow-y-auto border border-zinc-700 bg-zinc-950 py-1 shadow-xl"
+          className="absolute left-0 top-full z-50 mt-1 max-h-80 w-full overflow-y-auto rounded-md border border-zinc-700 bg-zinc-950 py-1 shadow-xl"
         >
           {matches.length === 0 ? (
             <p className="px-3 py-3 text-sm text-zinc-500">No matching pages or features.</p>
