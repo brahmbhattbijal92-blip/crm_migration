@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import AuthStatus from '../../../src/components/AuthStatus';
 import GlobalPageSearch from '../../../src/components/GlobalPageSearch';
 import {
   DashboardStorageProvider,
@@ -269,7 +268,6 @@ function DataLifecycleContent() {
             >
               Refresh
             </button>
-            <AuthStatus showDashboardLink />
           </div>
         </header>
 

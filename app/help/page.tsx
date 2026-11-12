@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import AuthStatus from '../../src/components/AuthStatus';
 
 export const metadata: Metadata = {
   title: 'Help and how-to | CRM Migration',
@@ -22,17 +21,6 @@ const topics = [
 export default function HelpPage() {
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
-      <header className="border-b border-zinc-800 px-4 py-4 sm:px-6">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3">
-          <Link href="/" className="text-sm font-semibold text-emerald-300 hover:text-emerald-200">CRM Migration</Link>
-          <nav aria-label="Main navigation" className="flex gap-4 text-sm text-zinc-300">
-            <Link href="/" className="hover:text-white">Home</Link>
-            <Link href="/contact" className="hover:text-white">Contact</Link>
-            <AuthStatus showDashboardLink />
-          </nav>
-        </div>
-      </header>
-
       <div className="mx-auto grid max-w-5xl gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[190px_minmax(0,1fr)] lg:gap-12 lg:py-12">
         <aside>
           <p className="mb-3 text-xs font-semibold uppercase text-zinc-500">On this page</p>

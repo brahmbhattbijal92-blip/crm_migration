@@ -1,9 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import CredentialVault from '../../src/components/CredentialVault';
-import AuthStatus from '../../src/components/AuthStatus';
 import GlobalPageSearch from '../../src/components/GlobalPageSearch';
 import { assignClientToAgent, listClientAssignmentAgents } from './client-assignment-actions';
 import {
@@ -829,10 +827,6 @@ function DashboardContent() {
             <GlobalPageSearch />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Link href="/help" className="border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900">Help</Link>
-            <Link href="/contact" className="border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900">Contact</Link>
-            <Link href="/dashboard/data-lifecycle" className="border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900">Data lifecycle</Link>
-            <AuthStatus />
             {selectedClient && (
               <button type="button" onClick={() => void shareSelectedClientWithPortal()} className="border border-emerald-800 px-3 py-2 text-sm text-emerald-200 hover:bg-emerald-950/50">
                 Share selected client

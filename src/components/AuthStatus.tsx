@@ -4,54 +4,34 @@ import Link from 'next/link';
 import React, { useEffect, useState } from 'react';
 import { getCurrentOrganizationRole } from '../../app/dashboard/team/actions';
 import { getSupabaseClient } from '../lib/supabase';
+import { useAuthSession } from '../context/AuthSessionContext';
 
 export default function AuthStatus({
   showDashboardLink = false,
   showTeamLink = true,
-}: { showDashboardLink?: boolean; showTeamLink?: boolean }) {
-  const [email, setEmail] = useState('');
+  showHomeLinkWhenSignedOut = false,
+}: { showDashboardLink?: boolean; showTeamLink?: boolean; showHomeLinkWhenSignedOut?: boolean }) {
+  const { user, isLoading } = useAuthSession();
+  const email = user?.email ?? '';
   const [canManageTeam, setCanManageTeam] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState('');
 
   useEffect(() => {
     let active = true;
-    let roleRequest = 0;
-    try {
-      const supabase = getSupabaseClient();
-      const updateSession = (user: { email?: string } | null) => {
-        setEmail(user?.email ?? '');
-        setCanManageTeam(false);
-        const requestId = ++roleRequest;
-        if (!user) return;
-
-        window.setTimeout(() => {
-          void getCurrentOrganizationRole()
-            .then((role) => {
-              if (active && requestId === roleRequest) setCanManageTeam(role === 'owner');
-            })
-            .catch(() => {
-              if (active && requestId === roleRequest) setCanManageTeam(false);
-            });
-        }, 0);
-      };
-      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-        updateSession(session?.user ?? null);
+    setCanManageTeam(false);
+    if (!user) return () => { active = false; };
+    void getCurrentOrganizationRole()
+      .then((role) => {
+        if (active) setCanManageTeam(role === 'owner');
+      })
+      .catch(() => {
+        if (active) setCanManageTeam(false);
       });
-      void supabase.auth.getSession()
-        .then(({ data: sessionData }) => {
-          if (active) updateSession(sessionData.session?.user ?? null);
-        })
-        .catch(() => undefined);
-      return () => {
-        active = false;
-        data.subscription.unsubscribe();
-      };
-    } catch {
-      active = false;
-      return undefined;
-    }
-  }, []);
+    return () => { active = false; };
+  }, [user?.id]);
+
+  if (isLoading) return null;
 
   async function signOut() {
     setIsSigningOut(true);
@@ -78,6 +58,7 @@ export default function AuthStatus({
     </div>
   ) : (
     <div className="flex items-center gap-2">
+      {showHomeLinkWhenSignedOut && <Link href="/" className="text-sm text-zinc-300 hover:text-white">Home</Link>}
       <Link href="/login" className="border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900">Sign in</Link>
     </div>
   );

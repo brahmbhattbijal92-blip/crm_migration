@@ -9,13 +9,6 @@ export const metadata: Metadata = {
 export default function ExtensionPrivacyPage() {
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
-      <header className="border-b border-zinc-800 px-4 py-4 sm:px-6">
-        <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3">
-          <Link href="/" className="text-sm font-semibold text-emerald-300 hover:text-emerald-200">CRM Migration</Link>
-          <Link href="/contact" className="text-sm text-zinc-300 hover:text-white">Contact</Link>
-        </div>
-      </header>
-
       <article className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
         <p className="text-xs font-semibold uppercase text-emerald-400">Privacy</p>
         <h1 className="mt-2 text-3xl font-semibold">Migration Form Assistant</h1>

@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import React, { useCallback, useEffect, useState } from 'react';
-import AuthStatus from '../../../src/components/AuthStatus';
 import GlobalPageSearch from '../../../src/components/GlobalPageSearch';
 import {
   ARCHIVE_RETENTION_DAYS,
@@ -270,7 +269,6 @@ function ArchivedClientsContent() {
               </select>
             </label>
             <span className="border border-zinc-700 px-2 py-1 text-xs uppercase text-zinc-400">{preference}</span>
-            <AuthStatus showDashboardLink />
             <button
               type="button"
               onClick={() => void refreshArchivedClients()}

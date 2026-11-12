@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { StorageProvider } from "@/src/context/StorageContext";
+import { AuthSessionProvider } from "@/src/context/AuthSessionContext";
+import AppNavigation from "@/src/components/AppNavigation";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,7 +19,10 @@ export default function RootLayout({
       <body className="antialiased">
         {/* Wrap your system shell container inside the state provider */}
         <StorageProvider>
-          {children}
+          <AuthSessionProvider>
+            <AppNavigation />
+            {children}
+          </AuthSessionProvider>
         </StorageProvider>
       </body>
     </html>

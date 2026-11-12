@@ -2,7 +2,6 @@
 
 import React, { Suspense, use, useEffect, useState } from 'react';
 import Link from 'next/link';
-import AuthStatus from '../../../../src/components/AuthStatus';
 import CredentialVault from '../../../../src/components/CredentialVault';
 import GlobalPageSearch from '../../../../src/components/GlobalPageSearch';
 import {
@@ -301,7 +300,6 @@ function ClientProfileContent({ clientId }: { clientId: string }) {
       <header className="border-b border-zinc-800 bg-zinc-950/95">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-4">
-            <Link href="/dashboard" aria-label="Back to dashboard" className="border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900">Dashboard</Link>
             <div className="w-full max-w-[420px]"><GlobalPageSearch /></div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -315,7 +313,6 @@ function ClientProfileContent({ clientId }: { clientId: string }) {
               <option value="local">Local</option>
               <option value="cloud">Cloud</option>
             </select>
-            <AuthStatus />
           </div>
         </div>
       </header>
