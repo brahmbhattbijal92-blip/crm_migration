@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import React, { startTransition, useEffect, useState } from 'react';
+import AuthStatus from '../../../src/components/AuthStatus';
 import GlobalPageSearch from '../../../src/components/GlobalPageSearch';
 import {
   deactivateOrganizationAgent,
@@ -194,8 +195,9 @@ export default function TeamPage() {
             <p className="mt-3 text-xs font-semibold uppercase text-emerald-400">Organization</p>
             <h1 className="mt-1 text-2xl font-semibold">Team access</h1>
           </div>
-          <div className="w-full max-w-md">
-            <GlobalPageSearch />
+          <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
+            <div className="w-full max-w-md"><GlobalPageSearch /></div>
+            <AuthStatus showDashboardLink showTeamLink={false} />
           </div>
         </header>
 

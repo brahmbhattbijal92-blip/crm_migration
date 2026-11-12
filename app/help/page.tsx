@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import AuthStatus from '../../src/components/AuthStatus';
 
 export const metadata: Metadata = {
   title: 'Help and how-to | CRM Migration',
@@ -27,7 +28,7 @@ export default function HelpPage() {
           <nav aria-label="Main navigation" className="flex gap-4 text-sm text-zinc-300">
             <Link href="/" className="hover:text-white">Home</Link>
             <Link href="/contact" className="hover:text-white">Contact</Link>
-            <Link href="/login" className="hover:text-white">Sign in</Link>
+            <AuthStatus showDashboardLink />
           </nav>
         </div>
       </header>

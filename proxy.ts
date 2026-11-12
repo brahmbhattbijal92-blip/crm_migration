@@ -5,6 +5,7 @@ import { getSupabasePublicConfig } from './src/lib/supabase/config';
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const isDashboard = pathname.startsWith('/dashboard');
+  const isLoginPage = pathname === '/login';
   const requiresAuthentication = isDashboard || pathname === '/setup';
 
   const config = getSupabasePublicConfig();
@@ -31,6 +32,15 @@ export async function proxy(request: NextRequest) {
   });
 
   const { data: userResult } = await supabase.auth.getUser();
+  if (isLoginPage && userResult.user) {
+    const dashboardUrl = request.nextUrl.clone();
+    dashboardUrl.pathname = '/dashboard';
+    dashboardUrl.search = '';
+    const redirectResponse = NextResponse.redirect(dashboardUrl);
+    response.cookies.getAll().forEach((cookie) => redirectResponse.cookies.set(cookie));
+    return redirectResponse;
+  }
+
   if (requiresAuthentication && !userResult.user) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = '/login';
@@ -80,5 +90,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/setup', '/auth/:path*'],
+  matcher: ['/dashboard/:path*', '/setup', '/auth/:path*', '/login'],
 };

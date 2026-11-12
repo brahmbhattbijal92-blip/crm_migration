@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import Link from 'next/link';
+import AuthStatus from '../../src/components/AuthStatus';
 
 const CONTACT_EMAIL = 'hybride.crm.migration@gmail.com';
 
@@ -49,7 +50,7 @@ export default function ContactPage() {
           <Link href="/" className="text-sm font-semibold text-emerald-300 hover:text-emerald-200">CRM Migration</Link>
           <nav aria-label="Main navigation" className="flex gap-4 text-sm text-zinc-300">
             <Link href="/help" className="hover:text-white">Help</Link>
-            <Link href="/login" className="hover:text-white">Sign in</Link>
+            <AuthStatus showDashboardLink />
           </nav>
         </div>
       </header>

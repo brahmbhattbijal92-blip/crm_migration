@@ -2,6 +2,7 @@
 'use client';
 
 import Link from 'next/link';
+import AuthStatus from '../src/components/AuthStatus';
 import { useStorage } from '../src/context/StorageContext';
 
 export default function Home() {
@@ -18,16 +19,16 @@ export default function Home() {
           <p className="mt-2 text-sm text-zinc-400">Sign in to your company workspace or register a new organization.</p>
         </header>
         <div className="flex flex-wrap gap-3">
-          <Link href="/login" className="bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 hover:bg-emerald-400">Sign in</Link>
+          <AuthStatus showDashboardLink />
           <Link href="/register" className="border border-zinc-700 px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-900">Register organization</Link>
           <Link href="/help" className="border border-zinc-700 px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-900">Help and how to use the system</Link>
           <Link href="/contact" className="border border-zinc-700 px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-900">Contact</Link>
           <Link
-            href="/login?next=%2Fdashboard%3Fmode%3Dlocal"
+            href="/dashboard?mode=local"
             onClick={() => void updateStoragePreference('local')}
             className="border border-zinc-700 px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-900"
           >
-            Sign in and continue in Local mode
+            Continue in Local mode
           </Link>
         </div>
       </div>

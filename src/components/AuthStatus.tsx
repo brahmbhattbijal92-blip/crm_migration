@@ -5,7 +5,10 @@ import React, { useEffect, useState } from 'react';
 import { getCurrentOrganizationRole } from '../../app/dashboard/team/actions';
 import { getSupabaseClient } from '../lib/supabase';
 
-export default function AuthStatus() {
+export default function AuthStatus({
+  showDashboardLink = false,
+  showTeamLink = true,
+}: { showDashboardLink?: boolean; showTeamLink?: boolean }) {
   const [email, setEmail] = useState('');
   const [canManageTeam, setCanManageTeam] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
@@ -16,8 +19,7 @@ export default function AuthStatus() {
     let roleRequest = 0;
     try {
       const supabase = getSupabaseClient();
-      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-        const user = session?.user;
+      const updateSession = (user: { email?: string } | null) => {
         setEmail(user?.email ?? '');
         setCanManageTeam(false);
         const requestId = ++roleRequest;
@@ -32,7 +34,15 @@ export default function AuthStatus() {
               if (active && requestId === roleRequest) setCanManageTeam(false);
             });
         }, 0);
+      };
+      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+        updateSession(session?.user ?? null);
       });
+      void supabase.auth.getSession()
+        .then(({ data: sessionData }) => {
+          if (active) updateSession(sessionData.session?.user ?? null);
+        })
+        .catch(() => undefined);
       return () => {
         active = false;
         data.subscription.unsubscribe();
@@ -58,7 +68,8 @@ export default function AuthStatus() {
 
   return email ? (
     <div className="flex flex-wrap items-center gap-2">
-      {canManageTeam && <Link href="/dashboard/team" className="border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900">Team</Link>}
+      {showDashboardLink && <Link href="/dashboard" className="border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900">Dashboard</Link>}
+      {showTeamLink && canManageTeam && <Link href="/dashboard/team" className="border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900">Team</Link>}
       <span className="hidden max-w-48 truncate text-xs text-zinc-500 lg:inline">{email}</span>
       <button type="button" disabled={isSigningOut} onClick={() => void signOut()} className="border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900 disabled:opacity-50">
         {isSigningOut ? 'Signing out...' : 'Sign out'}
