@@ -199,6 +199,8 @@ export interface IDataService {
   archiveClient(id: string): Promise<void>;
   listArchivedClients(): Promise<ClientRecord[]>;
   listDocumentsPage(clientId: string, offset: number, limit: number): Promise<PageResult<DocumentRecord>>;
+  updateDocumentName(documentId: string, fileName: string): Promise<DocumentRecord>;
+  deleteDocument(documentId: string): Promise<void>;
   restoreClient(id: string): Promise<void>;
   listDocuments(clientId?: string): Promise<DocumentRecord[]>;
   selectDocumentFolder(): Promise<string | null>;
@@ -227,6 +229,14 @@ function normalizePageBounds(offset: number, limit: number): { offset: number; l
     offset: Number.isFinite(offset) ? Math.max(0, Math.trunc(offset)) : 0,
     limit: Number.isFinite(limit) ? Math.min(MAX_PAGE_SIZE, Math.max(1, Math.trunc(limit))) : 50,
   };
+}
+
+function normalizeDocumentFileName(fileName: string): string {
+  const normalized = fileName.trim();
+  if (!normalized || normalized.length > 255 || /[\\/\u0000-\u001f]/.test(normalized)) {
+    throw new Error('Document name must be 1 to 255 characters and cannot contain path separators.');
+  }
+  return normalized;
 }
 
 function paginateRows<T>(rows: T[], offset: number, limit: number): PageResult<T> {
@@ -714,6 +724,39 @@ class IndexedDbDataService implements IDataService {
     return paginateRows(rows, offset, limit);
   }
 
+  async updateDocumentName(documentId: string, fileName: string): Promise<DocumentRecord> {
+    const existing = await localRequest<Record<string, unknown> | undefined>(DOCUMENTS_STORE, 'readonly', (store) => store.get(documentId));
+    if (!existing) throw new Error('Document not found.');
+    const updated = { ...existing, fileName: normalizeDocumentFileName(fileName) };
+    await localRequest(DOCUMENTS_STORE, 'readwrite', (store) => store.put(updated));
+    return mapDocument(updated);
+  }
+
+  async deleteDocument(documentId: string): Promise<void> {
+    const existing = await localRequest<Record<string, unknown> | undefined>(DOCUMENTS_STORE, 'readonly', (store) => store.get(documentId));
+    if (!existing) throw new Error('Document not found.');
+    const document = mapDocument(existing);
+    if (!document.storagePath.startsWith('blob:')) {
+      const setting = await localRequest<DirectorySetting | undefined>(SETTINGS_STORE, 'readonly', (store) => store.get(DIRECTORY_SETTING_KEY));
+      if (!setting || await setting.handle.queryPermission({ mode: 'readwrite' }) !== 'granted') {
+        throw new Error('Restore access to the selected document folder and retry.');
+      }
+      const [folderName, fileName, ...extraSegments] = document.storagePath.split('/');
+      if (!folderName || !fileName || extraSegments.length > 0 || folderName !== sanitizePathSegment(document.clientId)) {
+        throw new Error('The stored document path failed validation; the record was retained.');
+      }
+      try {
+        const clientFolder = await setting.handle.getDirectoryHandle(folderName);
+        await clientFolder.removeEntry(fileName);
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'NotFoundError')) {
+          throw new Error('Document file could not be removed; the record was retained.');
+        }
+      }
+    }
+    await localRequest(DOCUMENTS_STORE, 'readwrite', (store) => store.delete(documentId));
+  }
+
   async selectDocumentFolder(): Promise<string | null> {
     const picker = (window as DirectoryPickerWindow).showDirectoryPicker;
     if (!picker) throw new Error('Folder selection requires a supported browser on HTTPS or localhost.');
@@ -1189,6 +1232,56 @@ class SupabaseDataService implements IDataService {
       items: rows.slice(0, pageLimit).map((row) => mapDocument(row as Record<string, unknown>)),
       hasMore: rows.length > pageLimit,
     };
+  }
+
+  async updateDocumentName(documentId: string, fileName: string): Promise<DocumentRecord> {
+    const { data, error } = await getSupabaseClient()
+      .from('documents')
+      .update({ file_name: normalizeDocumentFileName(fileName) })
+      .eq('id', documentId)
+      .is('deleted_at', null)
+      .select('id, client_id, file_name, file_size, mime_type, storage_path, created_at')
+      .single();
+    if (error) throwSupabaseError(error, 'document name update');
+    return mapDocument(data as Record<string, unknown>);
+  }
+
+  async deleteDocument(documentId: string): Promise<void> {
+    const supabase = getSupabaseClient();
+    const { data: document, error: lookupError } = await supabase
+      .from('documents')
+      .select('id, bucket_id, storage_path')
+      .eq('id', documentId)
+      .is('deleted_at', null)
+      .single();
+    if (lookupError) throwSupabaseError(lookupError, 'document lookup');
+
+    const deletedAt = new Date().toISOString();
+    const { error: metadataError } = await supabase
+      .from('documents')
+      .update({ deleted_at: deletedAt })
+      .eq('id', documentId)
+      .is('deleted_at', null)
+      .select('id')
+      .single();
+    if (metadataError) throwSupabaseError(metadataError, 'document remove');
+
+    const { error: storageError } = await supabase.storage
+      .from(String(document.bucket_id || STORAGE_BUCKET))
+      .remove([String(document.storage_path)]);
+    if (!storageError) return;
+
+    const { error: restoreError } = await supabase
+      .from('documents')
+      .update({ deleted_at: null })
+      .eq('id', documentId)
+      .eq('deleted_at', deletedAt)
+      .select('id')
+      .single();
+    if (restoreError) {
+      throw new Error(`Document file removal failed and its metadata could not be restored: ${restoreError.message}`);
+    }
+    throwSupabaseError(storageError, 'document file removal');
   }
 
   async selectDocumentFolder(): Promise<string | null> {

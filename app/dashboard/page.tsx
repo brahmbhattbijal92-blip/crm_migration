@@ -169,6 +169,9 @@ function DashboardContent() {
   const [grantForm, setGrantForm] = useState<GrantFormState>(EMPTY_GRANT_FORM);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedFolder, setSelectedFolder] = useState('');
+  const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
+  const [documentNameDraft, setDocumentNameDraft] = useState('');
+  const [documentActionId, setDocumentActionId] = useState<string | null>(null);
   const [isSavingClient, setIsSavingClient] = useState(false);
   const [isSavingInvoice, setIsSavingInvoice] = useState(false);
   const [isSavingGrant, setIsSavingGrant] = useState(false);
@@ -648,6 +651,42 @@ function DashboardContent() {
     }
   }
 
+  async function handleSaveDocumentName(event: React.FormEvent<HTMLFormElement>, document: DocumentRecord) {
+    event.preventDefault();
+    setDocumentActionId(document.id);
+    setErrorMessage('');
+    try {
+      const updated = await dataService.updateDocumentName(document.id, documentNameDraft);
+      setDocuments((current) => current.map((entry) => entry.id === updated.id ? updated : entry));
+      setEditingDocumentId(null);
+      setDocumentNameDraft('');
+      setDocumentSuccessMessage('Document name updated.');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Document name could not be updated.');
+    } finally {
+      setDocumentActionId(null);
+    }
+  }
+
+  async function handleDeleteDocument(document: DocumentRecord) {
+    if (!window.confirm(`Delete ${document.fileName}? This removes the uploaded file and its metadata.`)) return;
+    setDocumentActionId(document.id);
+    setErrorMessage('');
+    try {
+      await dataService.deleteDocument(document.id);
+      setDocuments((current) => current.filter((entry) => entry.id !== document.id));
+      if (editingDocumentId === document.id) {
+        setEditingDocumentId(null);
+        setDocumentNameDraft('');
+      }
+      setDocumentSuccessMessage(`${document.fileName} deleted.`);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Document could not be deleted.');
+    } finally {
+      setDocumentActionId(null);
+    }
+  }
+
   async function handleInvoiceSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedClient || selectedClient.status === 'archived') return;
@@ -813,7 +852,13 @@ function DashboardContent() {
           onSearchTermChange={setClientSearchTerm}
           onSearchFieldChange={setClientSearchField}
           selectedClientId={selectedClientId}
-          onSelect={(clientId) => { setSelectedClientId(clientId); resetForm(); }}
+          onSelect={(clientId) => {
+            setSelectedClientId(clientId);
+            resetForm();
+            setEditingDocumentId(null);
+            setDocumentNameDraft('');
+            setDocumentSuccessMessage('');
+          }}
           onNewClient={handleNewClient}
           showArchived={showArchivedClients}
           onToggleArchived={() => { setShowArchivedClients((current) => !current); resetForm(); }}
@@ -1306,12 +1351,58 @@ function DashboardContent() {
               ) : (
                 <div className="divide-y divide-zinc-800">
                   {selectedClientDocuments.map((document) => (
-                    <div key={document.id} className="flex items-center justify-between gap-4 px-5 py-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm text-zinc-200">{document.fileName}</p>
-                        <p className="mt-1 text-xs text-zinc-500">{document.mimeType} · {(document.fileSize / 1024).toFixed(1)} KB</p>
+                    <div key={document.id} className="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 flex-1">
+                        {editingDocumentId === document.id ? (
+                          <form onSubmit={(event) => void handleSaveDocumentName(event, document)} className="flex flex-wrap gap-2">
+                            <input
+                              autoFocus
+                              required
+                              maxLength={255}
+                              aria-label={`New name for ${document.fileName}`}
+                              value={documentNameDraft}
+                              onChange={(event) => setDocumentNameDraft(event.target.value)}
+                              className="min-w-0 flex-1 border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-emerald-500"
+                            />
+                            <button type="submit" disabled={documentActionId === document.id} className="border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50">
+                              {documentActionId === document.id ? 'Saving...' : 'Save name'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={documentActionId === document.id}
+                              onClick={() => { setEditingDocumentId(null); setDocumentNameDraft(''); }}
+                              className="border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                            >
+                              Cancel
+                            </button>
+                          </form>
+                        ) : (
+                          <>
+                            <p className="truncate text-sm text-zinc-200">{document.fileName}</p>
+                            <p className="mt-1 text-xs text-zinc-500">{document.mimeType} · {(document.fileSize / 1024).toFixed(1)} KB · {formatDate(document.uploadedAt)}</p>
+                          </>
+                        )}
                       </div>
-                      <time className="shrink-0 text-xs text-zinc-500">{formatDate(document.uploadedAt)}</time>
+                      {editingDocumentId !== document.id && (
+                        <div className="flex shrink-0 items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={documentActionId !== null || selectedClient.status === 'archived'}
+                            onClick={() => { setEditingDocumentId(document.id); setDocumentNameDraft(document.fileName); }}
+                            className="border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                          >
+                            Rename
+                          </button>
+                          <button
+                            type="button"
+                            disabled={documentActionId !== null || selectedClient.status === 'archived'}
+                            onClick={() => void handleDeleteDocument(document)}
+                            className="border border-rose-900 px-3 py-2 text-xs text-rose-200 hover:bg-rose-950/50 disabled:opacity-50"
+                          >
+                            {documentActionId === document.id ? 'Deleting...' : 'Delete'}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                   {documentHasMore && (

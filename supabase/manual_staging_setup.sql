@@ -1054,8 +1054,8 @@ CREATE POLICY client_documents_delete_tenant ON storage.objects
   FOR DELETE TO authenticated
   USING (
     bucket_id = 'client-documents'
-    AND app.is_organization_admin(app.current_organization_id())
-    AND split_part(name, '/', 1) = app.current_organization_id()::text
+    AND app.can_manage_organization_data(app.current_organization_id())
+    AND app.storage_path_targets_active_client(name)
   );
 
 COMMIT;
