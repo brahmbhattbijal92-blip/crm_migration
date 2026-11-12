@@ -158,7 +158,8 @@ function DashboardContent() {
   const [agentReminders, setAgentReminders] = useState<AgentReminder[]>([]);
   const [expiryReviews, setExpiryReviews] = useState<ExpiryReviewRecord[]>([]);
   const [expiryReviewHasMore, setExpiryReviewHasMore] = useState(false);
-  const [isLoadingMoreExpiryReviews, setIsLoadingMoreExpiryReviews] = useState(false);
+  const [expiryReviewPageNumber, setExpiryReviewPageNumber] = useState(0);
+  const [isLoadingExpiryPage, setIsLoadingExpiryPage] = useState(false);
   const [localToday, setLocalToday] = useState('');
   const [financialSummary, setFinancialSummary] = useState<ClientFinancialSummaryData | null>(null);
   const [selectedClientId, setSelectedClientId] = useState('');
@@ -268,6 +269,7 @@ function DashboardContent() {
         setAgentReminders(reminderRows);
         setExpiryReviews(expiryReviewPage.items);
         setExpiryReviewHasMore(expiryReviewPage.hasMore);
+        setExpiryReviewPageNumber(0);
         const loadedRows = [...clientPage.items, ...archivedPage.items];
         setSelectedClientId((current) => current && loadedRows.some((client) => client.id === current)
           ? current
@@ -354,6 +356,7 @@ function DashboardContent() {
       setAgentReminders(reminderRows);
       setExpiryReviews(expiryReviewPage.items);
       setExpiryReviewHasMore(expiryReviewPage.hasMore);
+      setExpiryReviewPageNumber(0);
       const loadedRows = [...clientPage.items, ...archivedPage.items];
       setSelectedClientId((current) => current && loadedRows.some((client) => client.id === current)
         ? current
@@ -450,23 +453,24 @@ function DashboardContent() {
     }
   }
 
-  async function loadMoreExpiryReviews() {
-    if (!expiryReviewHasMore || isLoadingMoreExpiryReviews) return;
-    setIsLoadingMoreExpiryReviews(true);
+  async function goToExpiryReviewPage(pageNumber: number) {
+    if (pageNumber < 0 || isLoadingExpiryPage || (pageNumber > expiryReviewPageNumber && !expiryReviewHasMore)) return;
+    setIsLoadingExpiryPage(true);
     try {
       const fromDate = localToday || localDateString();
       const page = await dataService.listExpiryReviewPage(
         fromDate,
         addLocalDays(fromDate, 90),
-        expiryReviews.length,
+        pageNumber * EXPIRY_REVIEW_PAGE_SIZE,
         EXPIRY_REVIEW_PAGE_SIZE
       );
-      setExpiryReviews((current) => [...current, ...page.items]);
+      setExpiryReviews(page.items);
       setExpiryReviewHasMore(page.hasMore);
+      setExpiryReviewPageNumber(pageNumber);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'More expiry records could not be loaded.');
+      setErrorMessage(error instanceof Error ? error.message : 'Expiry review page could not be loaded.');
     } finally {
-      setIsLoadingMoreExpiryReviews(false);
+      setIsLoadingExpiryPage(false);
     }
   }
 
@@ -480,6 +484,7 @@ function DashboardContent() {
     );
     setExpiryReviews(page.items);
     setExpiryReviewHasMore(page.hasMore);
+    setExpiryReviewPageNumber(0);
   }
 
   function beginEdit(client: ClientRecord) {
@@ -1348,7 +1353,7 @@ function DashboardContent() {
               <div className="grid grid-cols-2 divide-x divide-zinc-800 border-b border-zinc-800">
                 <div className="p-4">
                   <p className="text-xs text-zinc-500">Upcoming expiries (next 90 days)</p>
-                  <p className="mt-1 text-xl font-semibold">{expiryReviews.length}{expiryReviewHasMore ? '+' : ''}</p>
+                  <p className="mt-1 text-xl font-semibold">{expiryReviews.length}</p>
                 </div>
                 <div className="p-4">
                   <p className="text-xs text-zinc-500">Expiry notices (24h)</p>
@@ -1400,15 +1405,28 @@ function DashboardContent() {
                     ))}
                   </div>
                 )}
-                {expiryReviewHasMore && (
-                  <button
-                    type="button"
-                    disabled={isLoadingMoreExpiryReviews}
-                    onClick={() => void loadMoreExpiryReviews()}
-                    className="mt-3 border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-900 disabled:opacity-50"
-                  >
-                    {isLoadingMoreExpiryReviews ? 'Loading...' : 'Load more expiries'}
-                  </button>
+                {(expiryReviewPageNumber > 0 || expiryReviewHasMore) && (
+                  <nav aria-label="Expiry review pagination" className="mt-3 flex items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      disabled={expiryReviewPageNumber === 0 || isLoadingExpiryPage}
+                      onClick={() => void goToExpiryReviewPage(expiryReviewPageNumber - 1)}
+                      className="border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-900 disabled:opacity-50"
+                    >
+                      Previous
+                    </button>
+                    <span aria-live="polite" className="text-xs text-zinc-500">
+                      {isLoadingExpiryPage ? 'Loading...' : `Page ${expiryReviewPageNumber + 1}`}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={!expiryReviewHasMore || isLoadingExpiryPage}
+                      onClick={() => void goToExpiryReviewPage(expiryReviewPageNumber + 1)}
+                      className="border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-900 disabled:opacity-50"
+                    >
+                      Next
+                    </button>
+                  </nav>
                 )}
               </div>
 
