@@ -24,6 +24,8 @@ npx supabase db reset
 
 Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` for authenticated cloud mode. Only the anon/public key belongs in browser variables; never expose a service-role key with a `NEXT_PUBLIC_` prefix. Local mode uses IndexedDB and does not require Supabase. Local document bytes are written to a user-selected folder through the File System Access API, which requires a supported browser and HTTPS or localhost.
 
+The client profile assistant requires the server-only `OPENAI_API_KEY`; `OPENAI_MODEL` is optional and defaults to `gpt-4.1-mini`. Client profile data and selected documents are sent to the configured OpenAI API when a question is submitted. The endpoint requires an authenticated organization member and verifies cloud documents against the requested client. Selected assistant documents are limited to 15 MB total.
+
 ## Organization accounts
 
 Apply the migrations after configuring Supabase Auth. Owners register at `/register`, confirm their email if confirmation is enabled, and create one organization at `/setup`. Owners and admins can invite agents from `/dashboard/team`; invite links return to `/auth/callback` and assign the invited account the `agent` role. Configure the Supabase Auth site URL and redirect allowlist for the app origin, and set `NEXT_PUBLIC_APP_URL` to that exact origin. Agent invitations require the server-only `SUPABASE_SERVICE_ROLE_KEY`; never expose it with a `NEXT_PUBLIC_` prefix. Each account currently has one default organization.

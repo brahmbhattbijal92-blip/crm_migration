@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import Link from 'next/link';
 import type { ClientRecord, ClientSearchField, GrantBalance } from '../../app/dashboard/StorageContext';
 import type { StoragePreference } from '../context/StorageContext';
 
@@ -142,15 +143,23 @@ export function ClientSidebar({
       <ul className="max-h-[70vh] divide-y divide-zinc-800 overflow-y-auto">
         {clients.map((client) => (
           <li key={client.id}>
-            <button
-              type="button"
-              aria-current={client.id === selectedClientId ? 'true' : undefined}
-              onClick={() => onSelect(client.id)}
-              className={`w-full px-4 py-3 text-left hover:bg-zinc-800/60 ${client.id === selectedClientId ? 'border-l-2 border-emerald-400 bg-zinc-800/50' : ''}`}
-            >
-              <span className="block truncate text-sm font-medium">{client.firstName} {client.lastName}</span>
-              <span className="mt-1 block truncate text-xs text-zinc-500">{client.company || client.email}</span>
-            </button>
+            <div className={`px-4 py-3 ${client.id === selectedClientId ? 'border-l-2 border-emerald-400 bg-zinc-800/50' : ''}`}>
+              <Link href={`/dashboard/clients/${encodeURIComponent(client.id)}`} className="block truncate text-sm font-medium hover:text-emerald-300">
+                {client.firstName} {client.lastName}
+              </Link>
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate text-xs text-zinc-500">{client.company || client.email}</span>
+                <button
+                  type="button"
+                  aria-current={client.id === selectedClientId ? 'true' : undefined}
+                  aria-label={`Select ${client.firstName} ${client.lastName} in workspace`}
+                  onClick={() => onSelect(client.id)}
+                  className="shrink-0 text-[11px] text-zinc-400 hover:text-emerald-300"
+                >
+                  Workspace
+                </button>
+              </div>
+            </div>
           </li>
         ))}
         {clients.length === 0 && <li className="px-4 py-6 text-sm text-zinc-500">No clients in this view.</li>}

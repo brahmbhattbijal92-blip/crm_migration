@@ -194,6 +194,7 @@ export interface IDataService {
   readonly preference: StoragePreference;
   listClientPage(archived: boolean, offset: number, limit: number, searchTerm?: string, searchField?: ClientSearchField): Promise<PageResult<ClientRecord>>;
   listClients(): Promise<ClientRecord[]>;
+  findClient(id: string): Promise<ClientRecord | null>;
   saveClient(input: ClientInput): Promise<ClientRecord>;
   updateClient(id: string, input: ClientInput): Promise<ClientRecord>;
   archiveClient(id: string): Promise<void>;
@@ -203,6 +204,7 @@ export interface IDataService {
   deleteDocument(documentId: string): Promise<void>;
   restoreClient(id: string): Promise<void>;
   listDocuments(clientId?: string): Promise<DocumentRecord[]>;
+  readDocumentFile(clientId: string, documentId: string): Promise<File>;
   selectDocumentFolder(): Promise<string | null>;
   stageDocument(clientId: string, file: File): Promise<DocumentRecord>;
   listCredentials(clientId: string): Promise<CredentialRecord[]>;
@@ -309,6 +311,7 @@ interface WritableHandleLike {
 
 interface FileHandleLike {
   createWritable(): Promise<WritableHandleLike>;
+  getFile(): Promise<File>;
 }
 
 interface DirectoryPickerWindow extends Window {
@@ -635,6 +638,11 @@ class IndexedDbDataService implements IDataService {
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
+  async findClient(id: string): Promise<ClientRecord | null> {
+    const row = await localRequest<StoredClient | undefined>(CLIENTS_STORE, 'readonly', (store) => store.get(id));
+    return row ? normalizeLocalClient(row) : null;
+  }
+
   async listArchivedClients(): Promise<ClientRecord[]> {
     const rows = await localRequest<(StoredClient | Record<string, unknown>)[]>(CLIENTS_STORE, 'readonly', (store) => store.getAll());
     return rows
@@ -717,6 +725,29 @@ class IndexedDbDataService implements IDataService {
       .map(mapDocument)
       .filter((document) => !clientId || document.clientId === clientId)
       .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
+  }
+
+  async readDocumentFile(clientId: string, documentId: string): Promise<File> {
+    const row = await localRequest<Record<string, unknown> | undefined>(DOCUMENTS_STORE, 'readonly', (store) => store.get(documentId));
+    if (!row) throw new Error('Document not found.');
+    const document = mapDocument(row);
+    if (document.clientId !== clientId) throw new Error('Document does not belong to this client.');
+    if (document.storagePath.startsWith('blob:')) {
+      const response = await fetch(document.storagePath);
+      if (!response.ok) throw new Error('Document file could not be opened.');
+      return new File([await response.blob()], document.fileName, { type: document.mimeType });
+    }
+    const setting = await localRequest<DirectorySetting | undefined>(SETTINGS_STORE, 'readonly', (store) => store.get(DIRECTORY_SETTING_KEY));
+    if (!setting || await setting.handle.queryPermission({ mode: 'readwrite' }) !== 'granted') {
+      throw new Error('Restore access to the selected document folder and retry.');
+    }
+    const [folderName, fileName, ...extraSegments] = document.storagePath.split('/');
+    if (!folderName || !fileName || extraSegments.length > 0 || folderName !== sanitizePathSegment(clientId)) {
+      throw new Error('The stored document path failed validation.');
+    }
+    const clientFolder = await setting.handle.getDirectoryHandle(folderName);
+    const file = await (await clientFolder.getFileHandle(fileName)).getFile();
+    return new File([file], document.fileName, { type: document.mimeType });
   }
 
   async listDocumentsPage(clientId: string, offset: number, limit: number): Promise<PageResult<DocumentRecord>> {
@@ -1144,6 +1175,16 @@ class SupabaseDataService implements IDataService {
     return (data ?? []).map((row) => mapCloudClient(row as Record<string, unknown>));
   }
 
+  async findClient(id: string): Promise<ClientRecord | null> {
+    const { data, error } = await getSupabaseClient()
+      .from('clients')
+      .select('id, first_name, last_name, email, company, status, archived_at, created_at, last_interaction_at, updated_at, passport_expires_at, visa_subclass, visa_expires_at, agent_reminder_date, agent_reminder_note, assigned_agent_id')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throwSupabaseError(error, 'client lookup');
+    return data ? mapCloudClient(data as Record<string, unknown>) : null;
+  }
+
   async listArchivedClients(): Promise<ClientRecord[]> {
     const { data, error } = await getSupabaseClient()
       .from('clients')
@@ -1214,6 +1255,23 @@ class SupabaseDataService implements IDataService {
     const { data, error } = await query;
     if (error) throwSupabaseError(error, 'document list');
     return (data ?? []).map((row) => mapDocument(row as Record<string, unknown>));
+  }
+
+  async readDocumentFile(clientId: string, documentId: string): Promise<File> {
+    const supabase = getSupabaseClient();
+    const { data: row, error: lookupError } = await supabase
+      .from('documents')
+      .select('client_id, bucket_id, file_name, mime_type, storage_path')
+      .eq('id', documentId)
+      .eq('client_id', clientId)
+      .is('deleted_at', null)
+      .single();
+    if (lookupError) throwSupabaseError(lookupError, 'document lookup');
+    const { data, error } = await supabase.storage
+      .from(String(row.bucket_id || STORAGE_BUCKET))
+      .download(String(row.storage_path));
+    if (error) throwSupabaseError(error, 'document download');
+    return new File([data], String(row.file_name), { type: String(row.mime_type || 'application/octet-stream') });
   }
 
   async listDocumentsPage(clientId: string, offset: number, limit: number): Promise<PageResult<DocumentRecord>> {
