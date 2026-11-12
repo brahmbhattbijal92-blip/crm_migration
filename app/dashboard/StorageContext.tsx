@@ -168,6 +168,14 @@ export interface AgentReminder {
   note: string;
 }
 
+export interface ExpiryReviewRecord {
+  id: string;
+  clientId: string;
+  clientName: string;
+  documentType: string;
+  expiresOn: string;
+}
+
 export interface PageResult<T> {
   items: T[];
   hasMore: boolean;
@@ -205,6 +213,7 @@ export interface IDataService {
   listGrants(): Promise<GrantRecord[]>;
   listGrantBalances(clientId?: string): Promise<GrantBalance[]>;
   createGrant(input: GrantInput): Promise<GrantRecord>;
+  listExpiryReviewPage(fromDate: string, throughDate: string, offset: number, limit: number): Promise<PageResult<ExpiryReviewRecord>>;
   listAgentReminders(): Promise<AgentReminder[]>;
   listGovernanceNotifications(): Promise<GovernanceNotification[]>;
   reviewPurge(clientIds: string[]): Promise<PurgeReview>;
@@ -224,6 +233,36 @@ function paginateRows<T>(rows: T[], offset: number, limit: number): PageResult<T
   const { offset: pageOffset, limit: pageLimit } = normalizePageBounds(offset, limit);
   const page = rows.slice(pageOffset, pageOffset + pageLimit + 1);
   return { items: page.slice(0, pageLimit), hasMore: page.length > pageLimit };
+}
+
+function toExpiryReviewRecords(clients: ClientRecord[], fromDate: string, throughDate: string): ExpiryReviewRecord[] {
+  return clients.flatMap((client) => {
+    const clientName = `${client.firstName} ${client.lastName}`.trim();
+    const records: ExpiryReviewRecord[] = [];
+    const passportExpiresOn = client.passportExpiresAt?.slice(0, 10);
+    const visaExpiresOn = client.visaExpiresAt?.slice(0, 10);
+    if (passportExpiresOn && passportExpiresOn >= fromDate && passportExpiresOn <= throughDate) {
+      records.push({
+        id: `${client.id}:passport`,
+        clientId: client.id,
+        clientName,
+        documentType: 'Passport',
+        expiresOn: passportExpiresOn,
+      });
+    }
+    if (visaExpiresOn && visaExpiresOn >= fromDate && visaExpiresOn <= throughDate) {
+      records.push({
+        id: `${client.id}:visa`,
+        clientId: client.id,
+        clientName,
+        documentType: `Visa${client.visaSubclass ? ` subclass ${client.visaSubclass}` : ''}`,
+        expiresOn: visaExpiresOn,
+      });
+    }
+    return records;
+  }).sort((left, right) => left.expiresOn.localeCompare(right.expiresOn)
+    || left.clientName.localeCompare(right.clientName)
+    || left.id.localeCompare(right.id));
 }
 
 function matchesClientSearch(client: ClientRecord, term: string, field: ClientSearchField): boolean {
@@ -939,6 +978,10 @@ class IndexedDbDataService implements IDataService {
     return grant;
   }
 
+  async listExpiryReviewPage(fromDate: string, throughDate: string, offset: number, limit: number): Promise<PageResult<ExpiryReviewRecord>> {
+    return paginateRows(toExpiryReviewRecords(await this.listClients(), fromDate, throughDate), offset, limit);
+  }
+
   async listAgentReminders(): Promise<AgentReminder[]> {
     const clients = await localRequest<Array<StoredClient | Record<string, unknown>>>(CLIENTS_STORE, 'readonly', (store) => store.getAll());
     return clients
@@ -1330,6 +1373,28 @@ class SupabaseDataService implements IDataService {
       currency: String(row.currency),
       availableBalance: Number(row.available_balance),
     }));
+  }
+
+  async listExpiryReviewPage(fromDate: string, throughDate: string, offset: number, limit: number): Promise<PageResult<ExpiryReviewRecord>> {
+    const { offset: pageOffset, limit: pageLimit } = normalizePageBounds(offset, limit);
+    const { data, error } = await getSupabaseClient().rpc('list_expiry_review_page', {
+      requested_from: fromDate,
+      requested_through: throughDate,
+      requested_offset: pageOffset,
+      requested_limit: pageLimit,
+    });
+    if (error) throwSupabaseError(error, 'expiry review list');
+    const rows = (data ?? []) as Array<Record<string, unknown>>;
+    return {
+      items: rows.slice(0, pageLimit).map((row) => ({
+        id: String(row.review_id),
+        clientId: String(row.client_id),
+        clientName: String(row.client_name ?? ''),
+        documentType: String(row.document_type),
+        expiresOn: String(row.expires_on),
+      })),
+      hasMore: rows.length > pageLimit,
+    };
   }
 
   async listAgentReminders(): Promise<AgentReminder[]> {

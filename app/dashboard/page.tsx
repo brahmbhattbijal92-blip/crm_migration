@@ -24,6 +24,7 @@ import {
   type ClientRecord,
   type ClientSearchField,
   type DocumentRecord,
+  type ExpiryReviewRecord,
   type GovernanceNotification,
   type GrantBalance,
   type GrantRecord,
@@ -31,6 +32,7 @@ import {
 } from './StorageContext';
 
 const DASHBOARD_PAGE_SIZE = 50;
+const EXPIRY_REVIEW_PAGE_SIZE = 20;
 
 interface AssignmentAgent {
   userId: string;
@@ -109,6 +111,12 @@ function localDateString(date = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
+function addLocalDays(dateString: string, days: number): string {
+  const date = new Date(`${dateString}T00:00:00`);
+  date.setDate(date.getDate() + days);
+  return localDateString(date);
+}
+
 function toAgentReminder(client: ClientRecord): AgentReminder | null {
   if (!client.agentReminderDate || client.status === 'archived') return null;
   return {
@@ -148,6 +156,9 @@ function DashboardContent() {
   const [grantBalances, setGrantBalances] = useState<GrantBalance[]>([]);
   const [notifications, setNotifications] = useState<GovernanceNotification[]>([]);
   const [agentReminders, setAgentReminders] = useState<AgentReminder[]>([]);
+  const [expiryReviews, setExpiryReviews] = useState<ExpiryReviewRecord[]>([]);
+  const [expiryReviewHasMore, setExpiryReviewHasMore] = useState(false);
+  const [isLoadingMoreExpiryReviews, setIsLoadingMoreExpiryReviews] = useState(false);
   const [localToday, setLocalToday] = useState('');
   const [financialSummary, setFinancialSummary] = useState<ClientFinancialSummaryData | null>(null);
   const [selectedClientId, setSelectedClientId] = useState('');
@@ -240,11 +251,13 @@ function DashboardContent() {
       setIsDashboardLoading(true);
       setErrorMessage('');
       try {
-        const [clientPage, archivedPage, notificationRows, reminderRows] = await Promise.all([
+        const expiryFromDate = localDateString();
+        const [clientPage, archivedPage, notificationRows, reminderRows, expiryReviewPage] = await Promise.all([
           dataService.listClientPage(false, 0, DASHBOARD_PAGE_SIZE, appliedClientSearchTerm, clientSearchField),
           dataService.listClientPage(true, 0, DASHBOARD_PAGE_SIZE, appliedClientSearchTerm, clientSearchField),
           dataService.listGovernanceNotifications(),
           dataService.listAgentReminders(),
+          dataService.listExpiryReviewPage(expiryFromDate, addLocalDays(expiryFromDate, 90), 0, EXPIRY_REVIEW_PAGE_SIZE),
         ]);
         if (!active) return;
         setClients(clientPage.items);
@@ -253,6 +266,8 @@ function DashboardContent() {
         setArchivedClientHasMore(archivedPage.hasMore);
         setNotifications(notificationRows);
         setAgentReminders(reminderRows);
+        setExpiryReviews(expiryReviewPage.items);
+        setExpiryReviewHasMore(expiryReviewPage.hasMore);
         const loadedRows = [...clientPage.items, ...archivedPage.items];
         setSelectedClientId((current) => current && loadedRows.some((client) => client.id === current)
           ? current
@@ -323,11 +338,13 @@ function DashboardContent() {
     setIsDashboardLoading(true);
     setErrorMessage('');
     try {
-      const [clientPage, archivedPage, notificationRows, reminderRows] = await Promise.all([
+      const expiryFromDate = localDateString();
+      const [clientPage, archivedPage, notificationRows, reminderRows, expiryReviewPage] = await Promise.all([
         dataService.listClientPage(false, 0, DASHBOARD_PAGE_SIZE, appliedClientSearchTerm, clientSearchField),
         dataService.listClientPage(true, 0, DASHBOARD_PAGE_SIZE, appliedClientSearchTerm, clientSearchField),
         dataService.listGovernanceNotifications(),
         dataService.listAgentReminders(),
+        dataService.listExpiryReviewPage(expiryFromDate, addLocalDays(expiryFromDate, 90), 0, EXPIRY_REVIEW_PAGE_SIZE),
       ]);
       setClients(clientPage.items);
       setArchivedClients(archivedPage.items);
@@ -335,6 +352,8 @@ function DashboardContent() {
       setArchivedClientHasMore(archivedPage.hasMore);
       setNotifications(notificationRows);
       setAgentReminders(reminderRows);
+      setExpiryReviews(expiryReviewPage.items);
+      setExpiryReviewHasMore(expiryReviewPage.hasMore);
       const loadedRows = [...clientPage.items, ...archivedPage.items];
       setSelectedClientId((current) => current && loadedRows.some((client) => client.id === current)
         ? current
@@ -431,6 +450,38 @@ function DashboardContent() {
     }
   }
 
+  async function loadMoreExpiryReviews() {
+    if (!expiryReviewHasMore || isLoadingMoreExpiryReviews) return;
+    setIsLoadingMoreExpiryReviews(true);
+    try {
+      const fromDate = localToday || localDateString();
+      const page = await dataService.listExpiryReviewPage(
+        fromDate,
+        addLocalDays(fromDate, 90),
+        expiryReviews.length,
+        EXPIRY_REVIEW_PAGE_SIZE
+      );
+      setExpiryReviews((current) => [...current, ...page.items]);
+      setExpiryReviewHasMore(page.hasMore);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'More expiry records could not be loaded.');
+    } finally {
+      setIsLoadingMoreExpiryReviews(false);
+    }
+  }
+
+  async function refreshExpiryReviews() {
+    const fromDate = localToday || localDateString();
+    const page = await dataService.listExpiryReviewPage(
+      fromDate,
+      addLocalDays(fromDate, 90),
+      0,
+      EXPIRY_REVIEW_PAGE_SIZE
+    );
+    setExpiryReviews(page.items);
+    setExpiryReviewHasMore(page.hasMore);
+  }
+
   function beginEdit(client: ClientRecord) {
     setEditingClientId(client.id);
     setSelectedClientId(client.id);
@@ -474,6 +525,9 @@ function DashboardContent() {
       setSelectedClientId(saved.id);
       setSuccessMessage(editingClientId ? 'Client profile updated.' : 'Client profile created.');
       resetForm();
+      void refreshExpiryReviews().catch((error: unknown) => {
+        setErrorMessage(error instanceof Error ? error.message : 'Expiry review queue could not be refreshed.');
+      });
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Client profile could not be saved.');
     } finally {
@@ -494,6 +548,9 @@ function DashboardContent() {
       setSelectedClientId((current) => current === client.id ? '' : current);
       if (editingClientId === client.id) resetForm();
       setSuccessMessage('Client archived.');
+      void refreshExpiryReviews().catch((error: unknown) => {
+        setErrorMessage(error instanceof Error ? error.message : 'Expiry review queue could not be refreshed.');
+      });
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Client could not be archived.');
     }
@@ -510,6 +567,9 @@ function DashboardContent() {
       setShowArchivedClients(false);
       setSelectedClientId(client.id);
       setSuccessMessage(`${client.firstName} ${client.lastName} restored to active clients.`);
+      void refreshExpiryReviews().catch((error: unknown) => {
+        setErrorMessage(error instanceof Error ? error.message : 'Expiry review queue could not be refreshed.');
+      });
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Client could not be restored.');
     }
@@ -709,10 +769,6 @@ function DashboardContent() {
     && selectedClientDataReady
     ? grantBalances.filter((balance) => balance.clientId === selectedClient.id)
     : [];
-  const expirationReviews = clients.flatMap((client) => [
-    ...(client.passportExpiresAt ? [{ id: `${client.id}:passport`, clientName: `${client.firstName} ${client.lastName}`, documentType: 'Passport', expiresOn: client.passportExpiresAt }] : []),
-    ...(client.visaExpiresAt ? [{ id: `${client.id}:visa`, clientName: `${client.firstName} ${client.lastName}`, documentType: `Visa${client.visaSubclass ? ` subclass ${client.visaSubclass}` : ''}`, expiresOn: client.visaExpiresAt }] : []),
-  ]);
   const visibleAgentReminders = agentReminders.filter((reminder) => localToday && reminder.reminderDate >= localToday);
   const dueAgentReminders = visibleAgentReminders.filter((reminder) => reminder.reminderDate === localToday);
 
@@ -1291,8 +1347,8 @@ function DashboardContent() {
               </div>
               <div className="grid grid-cols-2 divide-x divide-zinc-800 border-b border-zinc-800">
                 <div className="p-4">
-                  <p className="text-xs text-zinc-500">Expiry records on loaded clients</p>
-                  <p className="mt-1 text-xl font-semibold">{expirationReviews.length}</p>
+                  <p className="text-xs text-zinc-500">Upcoming expiries (next 90 days)</p>
+                  <p className="mt-1 text-xl font-semibold">{expiryReviews.length}{expiryReviewHasMore ? '+' : ''}</p>
                 </div>
                 <div className="p-4">
                   <p className="text-xs text-zinc-500">Expiry notices (24h)</p>
@@ -1332,17 +1388,27 @@ function DashboardContent() {
                   <h3 className="text-xs font-semibold uppercase text-zinc-400">Expiry review queue</h3>
                   <span className="text-[10px] uppercase text-amber-300">Review only</span>
                 </div>
-                {expirationReviews.length === 0 ? (
-                  <p className="text-sm text-zinc-500">No passport or visa expiry dates recorded.</p>
+                {expiryReviews.length === 0 ? (
+                  <p className="text-sm text-zinc-500">No active client passport or visa expiries due in the next 90 days.</p>
                 ) : (
                   <div className="max-h-64 space-y-2 overflow-auto">
-                    {expirationReviews.map((record) => (
+                    {expiryReviews.map((record) => (
                       <div key={record.id} className="flex items-center justify-between gap-3 border-b border-zinc-800/70 pb-2 text-sm last:border-0">
                         <span className="min-w-0 truncate text-zinc-300">{record.clientName} · {record.documentType}</span>
                         <time className="shrink-0 text-xs text-zinc-500">{formatDate(record.expiresOn)}</time>
                       </div>
                     ))}
                   </div>
+                )}
+                {expiryReviewHasMore && (
+                  <button
+                    type="button"
+                    disabled={isLoadingMoreExpiryReviews}
+                    onClick={() => void loadMoreExpiryReviews()}
+                    className="mt-3 border border-zinc-700 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-900 disabled:opacity-50"
+                  >
+                    {isLoadingMoreExpiryReviews ? 'Loading...' : 'Load more expiries'}
+                  </button>
                 )}
               </div>
 
