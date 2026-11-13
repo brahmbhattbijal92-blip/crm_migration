@@ -1125,7 +1125,7 @@ class IndexedDbDataService implements IDataService {
   }
 }
 
-class SupabaseDataService implements IDataService {
+export class SupabaseDataService implements IDataService {
   readonly preference = 'cloud' as const;
 
   async listClientPage(archived: boolean, offset: number, limit: number, searchTerm = '', searchField: ClientSearchField = 'all'): Promise<PageResult<ClientRecord>> {
@@ -1623,20 +1623,17 @@ class SupabaseDataService implements IDataService {
       throw new Error('Retention period has not elapsed. Keep clients archived for 90 days before purging.');
     }
 
-    const localReview = await new IndexedDbDataService().reviewPurge(clientIds);
-    const blockedInvoices = [
-      ...(invoiceResult.data ?? []).map((invoice) => ({
-        clientId: String(invoice.client_id),
-        invoiceNumber: String(invoice.invoice_number),
-        status: String(invoice.status),
-        amount: Number(invoice.amount),
-        currency: String(invoice.currency),
-      })),
-      ...localReview.blockedInvoices,
-    ];
+   const blockedInvoices = (invoiceResult.data ?? []).map((invoice) => ({
+      clientId: String(invoice.client_id),
+      invoiceNumber: String(invoice.invoice_number),
+      status: String(invoice.status),
+      amount: Number(invoice.amount),
+      currency: String(invoice.currency),
+    }));
+
     return {
       blockedInvoices,
-      attachmentCount: (documentResult.data?.length ?? 0) + localReview.attachmentCount,
+      attachmentCount: documentResult.data?.length ?? 0,
     };
   }
 
@@ -1671,11 +1668,7 @@ class SupabaseDataService implements IDataService {
         throw new Error(`Attachment cleanup failed; client rows remain purge-locked for retry: ${error.message}`);
       }
     }
-
-    await removeLocalAttachments(clientIds);
-    await deleteLocalClientRecords(clientIds);
-
-    const { error: finalizeError } = await supabase.rpc('finalize_client_purge', {
+  const { error: finalizeError } = await supabase.rpc('finalize_client_purge', {
       requested_client_ids: clientIds,
     });
     if (finalizeError) {
