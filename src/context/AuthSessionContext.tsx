@@ -43,8 +43,14 @@ export function AuthSessionProvider({ children }: { children: React.ReactNode })
         active = false;
         subscription.unsubscribe();
       };
-    } catch {
-      setIsLoading(false);
+     } catch {
+      queueMicrotask(() => {
+        if (active) {
+          setUser(null);
+          setIsLoading(false);
+        }
+      });
+
       return () => { active = false; };
     }
   }, []);

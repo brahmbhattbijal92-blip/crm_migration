@@ -83,7 +83,7 @@ function DataLifecycleContent() {
   const [hasMoreAccounts, setHasMoreAccounts] = useState(false);
   const [isLoadingMoreAccounts, setIsLoadingMoreAccounts] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
+  const [successMessage] = useState('');
   const [lastRefreshed, setLastRefreshed] = useState('');
   const [referenceTime, setReferenceTime] = useState(0);
   const queryKey = JSON.stringify([appliedSearchTerm, searchField]);
@@ -297,7 +297,7 @@ function DataLifecycleContent() {
           <div className="flex flex-col justify-between gap-3 border-b border-zinc-800 px-5 py-4 sm:flex-row sm:items-center">
             <div>
               <h2 className="text-base font-semibold">Account activity baseline</h2>
-              <p className="mt-1 text-xs text-zinc-500">Uses the client record's last update; opening a profile or adding an invoice, grant, or document does not necessarily reset it.</p>
+		<p className="mt-1 text-xs text-zinc-500">Uses the client record&apos;s last update; opening a profile or adding an invoice, grant, or document does not necessarily reset it.</p>
             </div>
             <button
               type="button"

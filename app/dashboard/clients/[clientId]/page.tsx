@@ -116,8 +116,63 @@ function ClientProfileContent({ clientId }: { clientId: string }) {
   }
 
   useEffect(() => {
-    void loadProfile();
+  let active = true;
+
+  async function load() {
+    if (!isReady) return;
+
+    setIsLoading(true);
+    setErrorMessage('');
+
+    try {
+      const [clientRecord, documentRows, invoicePage, grantPage] = await Promise.all([
+        dataService.findClient(clientId),
+        dataService.listDocuments(clientId),
+        dataService.listInvoicesPage(clientId, 0, 100),
+        dataService.listGrantsPage(clientId, 0, 100),
+      ]);
+
+      if (!active) return;
+
+      if (!clientRecord) {
+        setClient(null);
+        return;
+      }
+
+      setClient(clientRecord);
+      setForm({
+        firstName: clientRecord.firstName,
+        lastName: clientRecord.lastName,
+        email: clientRecord.email,
+        company: clientRecord.company,
+        passportExpiresAt: clientRecord.passportExpiresAt ?? '',
+        visaSubclass: clientRecord.visaSubclass,
+        visaExpiresAt: clientRecord.visaExpiresAt ?? '',
+        agentReminderDate: clientRecord.agentReminderDate ?? '',
+        agentReminderNote: clientRecord.agentReminderNote,
+      });
+      setDocuments(documentRows);
+      setInvoices(invoicePage.items);
+      setGrants(grantPage.items);
+      setInvoiceHasMore(invoicePage.hasMore);
+      setGrantHasMore(grantPage.hasMore);
+      setSelectedDocumentIds([]);
+    } catch (error) {
+      if (active) {
+        setErrorMessage(error instanceof Error ? error.message : 'Client profile could not be loaded.');
+      }
+    } finally {
+      if (active) setIsLoading(false);
+    }
+  }
+
+  void load();
+
+  return () => {
+    active = false;
+  };
   }, [clientId, dataService, isReady]);
+
 
   async function loadMoreInvoices() {
     try {

@@ -13,23 +13,41 @@ export default function AuthStatus({
 }: { showDashboardLink?: boolean; showTeamLink?: boolean; showHomeLinkWhenSignedOut?: boolean }) {
   const { user, isLoading } = useAuthSession();
   const email = user?.email ?? '';
-  const [canManageTeam, setCanManageTeam] = useState(false);
+  const [teamRole, setTeamRole] = useState<{ userId: string; canManage: boolean } | null>(null);
+  const userId = user?.id;
+  const canManageTeam = teamRole !== null && teamRole.userId === userId && teamRole.canManage;
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState('');
 
   useEffect(() => {
-    let active = true;
-    setCanManageTeam(false);
-    if (!user) return () => { active = false; };
-    void getCurrentOrganizationRole()
-      .then((role) => {
-        if (active) setCanManageTeam(role === 'owner');
-      })
-      .catch(() => {
-        if (active) setCanManageTeam(false);
-      });
-    return () => { active = false; };
-  }, [user?.id]);
+  let active = true;
+
+  if (!userId) return () => {
+    active = false;
+  };
+
+  void getCurrentOrganizationRole()
+    .then((role) => {
+      if (active) {
+        setTeamRole({
+          userId,
+          canManage: role === 'owner',
+        });
+      }
+    })
+    .catch(() => {
+      if (active) {
+        setTeamRole({
+          userId,
+          canManage: false,
+        });
+      }
+    });
+
+  return () => {
+    active = false;
+  };
+ }, [userId]);
 
   if (isLoading) return null;
 

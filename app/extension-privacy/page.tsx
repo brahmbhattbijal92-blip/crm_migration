@@ -17,12 +17,12 @@ export default function ExtensionPrivacyPage() {
         <div className="mt-8 space-y-7 text-sm leading-7 text-zinc-300">
           <section>
             <h2 className="text-lg font-semibold text-zinc-100">What the extension does</h2>
-            <p className="mt-2">Migration Form Assistant transfers selected client details from the CRM Migration dashboard into matching blank fields on the supported ImmiAccount website. It only acts after you start sharing a selected client and click the extension's fill button. It does not submit the form.</p>
+            <p className="mt-2">Migration Form Assistant transfers selected client details from the CRM Migration dashboard into matching blank fields on the supported ImmiAccount website. It only acts after you start sharing a selected client and click the extension&apos;s fill button. It does not submit the form.</p>
           </section>
 
           <section>
             <h2 className="text-lg font-semibold text-zinc-100">Information it handles</h2>
-            <p className="mt-2">The extension may handle a selected client's first name, last name, email address, company, passport expiry date, visa subclass, and visa expiry date. It does not receive credential-vault passwords, usernames, or verification codes.</p>
+            <p className="mt-2">The extension may handle a selected client&apos;s first name, last name, email address, company, passport expiry date, visa subclass, and visa expiry date. It does not receive credential-vault passwords, usernames, or verification codes.</p>
           </section>
 
           <section>

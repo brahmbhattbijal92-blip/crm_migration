@@ -29,22 +29,40 @@ const linkClass = 'whitespace-nowrap px-3 py-2 text-sm text-zinc-300 transition-
 
 export default function AppNavigation() {
   const { user, isLoading } = useAuthSession();
-  const [canManageTeam, setCanManageTeam] = useState(false);
+  const [teamRole, setTeamRole] = useState<{ userId: string; canManage: boolean } | null>(null);
+  const userId = user?.id;
+  const canManageTeam = teamRole !== null && teamRole.userId === userId && teamRole.canManage;
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
-    setCanManageTeam(false);
-    if (!user) return () => { active = false; };
+
+    if (!userId) return () => {
+      active = false;
+    };
+
     void getCurrentOrganizationRole()
       .then((role) => {
-        if (active) setCanManageTeam(role === 'owner');
+        if (active) {
+          setTeamRole({
+            userId,
+            canManage: role === 'owner',
+          });
+        }
       })
       .catch(() => {
-        if (active) setCanManageTeam(false);
+        if (active) {
+          setTeamRole({
+            userId,
+            canManage: false,
+          });
+        }
       });
-    return () => { active = false; };
-  }, [user?.id]);
+
+    return () => {
+      active = false;
+    };
+   }, [userId]);
 
   useEffect(() => {
     if (!menuOpen) return;

@@ -59,7 +59,7 @@ export async function POST(request: Request) {
   if (requestedDocumentIds.length > MAX_DOCUMENT_COUNT) return badRequest(`Choose no more than ${MAX_DOCUMENT_COUNT} documents.`);
 
   let clientProfile: Record<string, unknown>;
-  let documents: AssistantDocument[] = [];
+  const documents: AssistantDocument[] = [];
   let totalBytes = 0;
   let downloadedBytes = 0;
 
